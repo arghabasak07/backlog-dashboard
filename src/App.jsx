@@ -13,16 +13,16 @@ import "./App.css";
 
 const CSV_URLS = {
   backlog:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSusJS7m9ish0SUQrKQOUiNuia9GoFrqvAjUkVrxkOebpbnX7otEopZ-_ThlWaVRj2KYEnUZN2AKrYJ/pub?gid=627589963&single=true&output=csv",
+    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/gviz/tq?tqx=out:csv&gid=627589963",
 
   aging:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSusJS7m9ish0SUQrKQOUiNuia9GoFrqvAjUkVrxkOebpbnX7otEopZ-_ThlWaVRj2KYEnUZN2AKrYJ/pub?gid=2108632369&single=true&output=csv",
+    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/gviz/tq?tqx=out:csv&gid=2108632369",
 
   dashboardCard:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSusJS7m9ish0SUQrKQOUiNuia9GoFrqvAjUkVrxkOebpbnX7otEopZ-_ThlWaVRj2KYEnUZN2AKrYJ/pub?gid=233831813&single=true&output=csv",
+    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/gviz/tq?tqx=out:csv&gid=233831813",
 
   tracking:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSusJS7m9ish0SUQrKQOUiNuia9GoFrqvAjUkVrxkOebpbnX7otEopZ-_ThlWaVRj2KYEnUZN2AKrYJ/pub?gid=713116247&single=true&output=csv",
+    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/gviz/tq?tqx=out:csv&gid=713116247",
 };
 
 const num = (value) => {
@@ -58,8 +58,12 @@ const normalizeRow = (row) => {
 };
 
 const fetchCSV = async (url) => {
-  const cacheBustedUrl = `${url}&t=${Date.now()}`;
-  const response = await fetch(cacheBustedUrl);
+  const separator = url.includes("?") ? "&" : "?";
+  const cacheBustedUrl = `${url}${separator}t=${Date.now()}`;
+
+  const response = await fetch(cacheBustedUrl, {
+    cache: "no-store",
+  });
 
   if (!response.ok) {
     throw new Error(`Could not fetch CSV: HTTP ${response.status}`);
@@ -81,8 +85,12 @@ const fetchCSV = async (url) => {
 };
 
 const fetchDashboardCardCSV = async (url) => {
-  const cacheBustedUrl = `${url}&t=${Date.now()}`;
-  const response = await fetch(cacheBustedUrl);
+  const separator = url.includes("?") ? "&" : "?";
+  const cacheBustedUrl = `${url}${separator}t=${Date.now()}`;
+
+  const response = await fetch(cacheBustedUrl, {
+    cache: "no-store",
+  });
 
   if (!response.ok) {
     throw new Error(`Could not fetch Dashboard_Card CSV: HTTP ${response.status}`);
@@ -252,7 +260,6 @@ const getZoneTransferData = (dashboardRows, selectedDateKey, totalInProcess) => 
   };
 };
 
-/* CarryBee brand colors */
 const NAVY = "#1C2B3A";
 const CRIMSON = "#E05C3A";
 const GREEN = "#2E7D6B";
@@ -462,7 +469,8 @@ function App() {
         <p style={{ color: CRIMSON, fontWeight: 700 }}>⚠ {error}</p>
 
         <p style={{ fontSize: 13, color: "#4a5980", marginTop: 8 }}>
-          Check whether your Google Sheets CSV links are published and accessible.
+          Check whether your Google Sheet is shared as “Anyone with the link can
+          view”.
         </p>
       </div>
     );
@@ -630,6 +638,43 @@ function App() {
 
   const BUCKETS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, "10+"];
 
+  const getWorkedOnValue = (row) => {
+    if (!isBlank(row["Worked On"])) {
+      return num(row["Worked On"]);
+    }
+
+    const globalIndex = tracking.findIndex(
+      (item) =>
+        getDateKey(item["Report Date"]) === getDateKey(row["Report Date"])
+    );
+
+    const prevRow = globalIndex > 0 ? tracking[globalIndex - 1] : null;
+
+    if (!prevRow) return 0;
+
+    const prevCarry = !isBlank(prevRow["Carry Forward"])
+      ? num(prevRow["Carry Forward"])
+      : num(prevRow["Total In Progress (Backlog)"]);
+
+    const newlyAdded = num(row["Newly Added"]);
+    const currentTotal = num(row["Total In Progress (Backlog)"]);
+
+    const calculatedWorked = prevCarry + newlyAdded - currentTotal;
+
+    return Math.max(calculatedWorked, 0);
+  };
+
+  const getCarryForwardValue = (row) => {
+    if (!isBlank(row["Carry Forward"])) {
+      return num(row["Carry Forward"]);
+    }
+
+    const total = num(row["Total In Progress (Backlog)"]);
+    const worked = getWorkedOnValue(row);
+
+    return Math.max(total - worked, 0);
+  };
+
   const trendData = selectedWindowTracking.map((row) => ({
     date: toDateLabel(row["Report Date"]),
 
@@ -637,7 +682,7 @@ function App() {
       ? num(row["Total In Progress (Backlog)"])
       : null,
 
-    workedOn: !isBlank(row["Worked On"]) ? num(row["Worked On"]) : null,
+    workedOn: getWorkedOnValue(row),
   }));
 
   const reportDate =
@@ -1082,15 +1127,9 @@ function App() {
 
                   <td>{fmt(row["Total In Progress (Backlog)"])}</td>
 
-                  <td>
-                    {!isBlank(row["Worked On"]) ? fmt(row["Worked On"]) : "—"}
-                  </td>
+                  <td>{fmt(getWorkedOnValue(row))}</td>
 
-                  <td>
-                    {!isBlank(row["Carry Forward"])
-                      ? fmt(row["Carry Forward"])
-                      : "—"}
-                  </td>
+                  <td>{fmt(getCarryForwardValue(row))}</td>
                 </tr>
               );
             })}
