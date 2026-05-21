@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import Papa from "papaparse";
 import {
   AreaChart,
   Area,
@@ -11,19 +10,8 @@ import {
 } from "recharts";
 import "./App.css";
 
-const CSV_URLS = {
-  backlog:
-    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/export?format=csv&gid=627589963",
-
-  aging:
-    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/export?format=csv&gid=2108632369",
-
-  dashboardCard:
-    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/export?format=csv&gid=233831813",
-
-  tracking:
-    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/export?format=csv&gid=713116247",
-};
+const API_URL =
+  "https://script.google.com/macros/s/AKfycbzKeAZ2k3oLrT2fgH7dtJpJjNXVPtPohCzkc7dBNCnc40zbsX51o8KpoCuwnoSoWqSOCg/exec";
 
 const num = (value) => {
   if (value === null || value === undefined || value === "") return 0;
@@ -40,6 +28,11 @@ const isBlank = (value) =>
 
 const fmt = (value) => num(value).toLocaleString();
 
+const fmtMaybe = (value) => {
+  if (value === null || value === undefined || value === "") return "—";
+  return fmt(value);
+};
+
 const fmtK = (value) => {
   const n = num(value);
   return n >= 1000 ? `${(n / 1000).toFixed(0)}K` : n;
@@ -48,102 +41,13 @@ const fmtK = (value) => {
 const normalizeRow = (row) => {
   const normalized = {};
 
-  Object.entries(row).forEach(([key, value]) => {
+  Object.entries(row || {}).forEach(([key, value]) => {
     const cleanKey = String(key || "").trim();
     const cleanValue = typeof value === "string" ? value.trim() : value;
     normalized[cleanKey] = cleanValue;
   });
 
   return normalized;
-};
-
-const fetchCSV = async (url) => {
-  const separator = url.includes("?") ? "&" : "?";
-  const cacheBustedUrl = `${url}${separator}t=${Date.now()}`;
-
-  const response = await fetch(cacheBustedUrl, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Could not fetch CSV: HTTP ${response.status}`);
-  }
-
-  const csvText = await response.text();
-
-  return new Promise((resolve, reject) => {
-    Papa.parse(csvText, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (result) => {
-        const rows = result.data.map(normalizeRow);
-        resolve(rows);
-      },
-      error: (error) => reject(error),
-    });
-  });
-};
-
-const fetchDashboardCardCSV = async (url) => {
-  const separator = url.includes("?") ? "&" : "?";
-  const cacheBustedUrl = `${url}${separator}t=${Date.now()}`;
-
-  const response = await fetch(cacheBustedUrl, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Could not fetch Dashboard_Card CSV: HTTP ${response.status}`);
-  }
-
-  const csvText = await response.text();
-
-  return new Promise((resolve, reject) => {
-    Papa.parse(csvText, {
-      header: false,
-      skipEmptyLines: true,
-      complete: (result) => {
-        const rawRows = result.data;
-
-        const headerRowIndex = rawRows.findIndex((row) => {
-          const cells = row.map((cell) => String(cell || "").trim());
-          return cells.includes("Date") && cells.includes("Zone Transfer");
-        });
-
-        if (headerRowIndex === -1) {
-          resolve([]);
-          return;
-        }
-
-        const headers = rawRows[headerRowIndex].map((header) =>
-          String(header || "").trim()
-        );
-
-        const rows = rawRows
-          .slice(headerRowIndex + 1)
-          .filter((row) =>
-            row.some((cell) => String(cell || "").trim() !== "")
-          )
-          .map((row) => {
-            const obj = {};
-
-            headers.forEach((header, index) => {
-              if (header) {
-                obj[header] =
-                  typeof row[index] === "string"
-                    ? row[index].trim()
-                    : row[index];
-              }
-            });
-
-            return obj;
-          });
-
-        resolve(rows);
-      },
-      error: (error) => reject(error),
-    });
-  });
 };
 
 const parseDate = (value) => {
@@ -237,10 +141,10 @@ const getZoneTransferData = (dashboardRows, selectedDateKey, totalInProcess) => 
   const selectedRow = getDashboardCardRow(dashboardRows, selectedDateKey);
 
   const zoneTransfer = isBlank(selectedRow["Zone Transfer"])
-    ? 0
+    ? null
     : num(selectedRow["Zone Transfer"]);
 
-  let zoneTransferPct = 0;
+  let zoneTransferPct = null;
 
   if (!isBlank(selectedRow["Zone Transfer (%)"])) {
     zoneTransferPct = num(selectedRow["Zone Transfer (%)"]);
@@ -248,10 +152,8 @@ const getZoneTransferData = (dashboardRows, selectedDateKey, totalInProcess) => 
     if (zoneTransferPct <= 1) {
       zoneTransferPct = zoneTransferPct * 100;
     }
-  } else {
-    zoneTransferPct = totalInProcess
-      ? (zoneTransfer / totalInProcess) * 100
-      : 0;
+  } else if (zoneTransfer !== null && totalInProcess) {
+    zoneTransferPct = (zoneTransfer / totalInProcess) * 100;
   }
 
   return {
@@ -281,27 +183,36 @@ const KPICard = ({ icon, title, value, delta, deltaDir, accent }) => (
   </div>
 );
 
-const HBar = ({ label, value, max, color }) => (
-  <div className="hbar-row">
-    <span className="hbar-label">{label}</span>
+const HBar = ({ label, value, max, color }) => {
+  if (isBlank(value)) return null;
 
-    <div className="hbar-track">
-      <div
-        className="hbar-fill"
-        style={{
-          width: max > 0 ? `${Math.min((num(value) / max) * 100, 100)}%` : "0%",
-          background: color,
-        }}
-      >
-        {num(value) > max * 0.18 ? fmt(value) : ""}
+  return (
+    <div className="hbar-row">
+      <span className="hbar-label">{label}</span>
+
+      <div className="hbar-track">
+        <div
+          className="hbar-fill"
+          style={{
+            width:
+              max > 0 ? `${Math.min((num(value) / max) * 100, 100)}%` : "0%",
+            background: color,
+          }}
+        >
+          {num(value) > max * 0.18 ? fmt(value) : ""}
+        </div>
       </div>
-    </div>
 
-    <span className="hbar-value">{fmt(value)}</span>
-  </div>
-);
+      <span className="hbar-value">{fmt(value)}</span>
+    </div>
+  );
+};
 
 const StackedBar = ({ label, isd, sub, osd }) => {
+  const hasAnyValue = !isBlank(isd) || !isBlank(sub) || !isBlank(osd);
+
+  if (!hasAnyValue) return null;
+
   const total = num(isd) + num(sub) + num(osd);
 
   if (total === 0) return null;
@@ -315,7 +226,7 @@ const StackedBar = ({ label, isd, sub, osd }) => {
       <span className="stacked-bar-label">{label}</span>
 
       <div className="stacked-bar-track">
-        {num(isd) > 0 && (
+        {!isBlank(isd) && num(isd) > 0 && (
           <div
             className="stacked-bar-segment seg-isd"
             style={{ width: `${pISD}%` }}
@@ -324,7 +235,7 @@ const StackedBar = ({ label, isd, sub, osd }) => {
           </div>
         )}
 
-        {num(sub) > 0 && (
+        {!isBlank(sub) && num(sub) > 0 && (
           <div
             className="stacked-bar-segment seg-sub"
             style={{ width: `${pSUB}%` }}
@@ -333,7 +244,7 @@ const StackedBar = ({ label, isd, sub, osd }) => {
           </div>
         )}
 
-        {num(osd) > 0 && (
+        {!isBlank(osd) && num(osd) > 0 && (
           <div
             className="stacked-bar-segment seg-osd"
             style={{ width: `${pOSD}%` }}
@@ -360,7 +271,7 @@ const CustomTooltip = ({ active, payload, label }) => {
       <p style={{ color: "#ffffff" }}>
         <span>Total In Progress:</span>{" "}
         <strong>
-          {row.totalInProgress != null
+          {row.totalInProgress !== null && row.totalInProgress !== undefined
             ? row.totalInProgress.toLocaleString()
             : "—"}
         </strong>
@@ -369,7 +280,9 @@ const CustomTooltip = ({ active, payload, label }) => {
       <p style={{ color: "#ffffff" }}>
         <span>Worked On:</span>{" "}
         <strong>
-          {row.workedOn != null ? row.workedOn.toLocaleString() : "—"}
+          {row.workedOn !== null && row.workedOn !== undefined
+            ? row.workedOn.toLocaleString()
+            : "—"}
         </strong>
       </p>
     </div>
@@ -391,32 +304,43 @@ function App() {
       setLoading(true);
       setError(null);
 
-      const [trackingRows, backlogRows, agingRows, dashboardRows] =
-        await Promise.all([
-          fetchCSV(CSV_URLS.tracking),
-          fetchCSV(CSV_URLS.backlog),
-          fetchCSV(CSV_URLS.aging),
-          fetchDashboardCardCSV(CSV_URLS.dashboardCard),
-        ]);
+      const response = await fetch(`${API_URL}?t=${Date.now()}`, {
+        method: "GET",
+        cache: "no-store",
+      });
 
-      const cleanTrackingRows = trackingRows.filter(
-        (row) =>
-          row["Report Date"] &&
-          row["Total In Progress (Backlog)"] !== undefined
-      );
+      if (!response.ok) {
+        throw new Error(`API request failed: HTTP ${response.status}`);
+      }
 
-      const cleanBacklogRows = backlogRows.filter(
-        (row) => row["Date"] || row["FID Backlog"] !== undefined
-      );
+      const data = await response.json();
 
-      const cleanAgingRows = agingRows.filter(
-        (row) => row["Region"] === "ISD" || row["Region"] === "OSD"
-      );
+      if (!data.success) {
+        throw new Error(data.error || "Apps Script API returned an error");
+      }
+
+      const cleanTrackingRows = (data.tracking || [])
+        .map(normalizeRow)
+        .filter(
+          (row) =>
+            row["Report Date"] &&
+            row["Total In Progress (Backlog)"] !== undefined
+        );
+
+      const cleanBacklogRows = (data.backlog || [])
+        .map(normalizeRow)
+        .filter((row) => row["Date"] || row["FID Backlog"] !== undefined);
+
+      const cleanAgingRows = (data.aging || [])
+        .map(normalizeRow)
+        .filter((row) => row["Region"] === "ISD" || row["Region"] === "OSD");
+
+      const cleanDashboardRows = (data.dashboardCard || []).map(normalizeRow);
 
       setTracking(cleanTrackingRows);
       setBacklog(cleanBacklogRows);
       setAging(cleanAgingRows);
-      setDashboardCard(dashboardRows);
+      setDashboardCard(cleanDashboardRows);
 
       const lastDateKey = getDateKey(
         cleanTrackingRows[cleanTrackingRows.length - 1]?.["Report Date"]
@@ -466,11 +390,13 @@ function App() {
   if (error) {
     return (
       <div className="loading-screen">
-        <p style={{ color: CRIMSON, fontWeight: 700 }}>⚠ {error}</p>
+        <p style={{ color: CRIMSON, fontWeight: 700 }}>
+          ⚠ Could not fetch Apps Script API: {error}
+        </p>
 
         <p style={{ fontSize: 13, color: "#4a5980", marginTop: 8 }}>
-          Check whether your Google Sheet is shared as “Anyone with the link can
-          view”.
+          Check Apps Script deployment access: Execute as Me, Who has access:
+          Anyone.
         </p>
       </div>
     );
@@ -539,38 +465,47 @@ function App() {
   const prevOSD =
     prevAgingRows.filter((row) => row["Region"] === "OSD").slice(-1)[0] || {};
 
-  const trackingTotalInProgress = num(
+  const trackingTotalInProgress = !isBlank(
     selectedTracking["Total In Progress (Backlog)"]
-  );
+  )
+    ? num(selectedTracking["Total In Progress (Backlog)"])
+    : null;
 
-  const dashboardTotal = num(selectedDashboardCard["Total"]);
+  const dashboardTotal = !isBlank(selectedDashboardCard["Total"])
+    ? num(selectedDashboardCard["Total"])
+    : null;
 
-  const fidBacklog = hasBacklogForSelectedDate
+  const fidBacklog = !isBlank(selectedBacklog["FID Backlog"])
     ? num(selectedBacklog["FID Backlog"])
-    : trackingTotalInProgress;
+    : null;
 
-  const ridBacklog = hasBacklogForSelectedDate
+  const ridBacklog = !isBlank(selectedBacklog["RID Backlog"])
     ? num(selectedBacklog["RID Backlog"])
-    : 0;
+    : null;
 
-  const totalBacklog = hasBacklogForSelectedDate
-    ? fidBacklog + ridBacklog
-    : trackingTotalInProgress;
+  const totalBacklog =
+    fidBacklog !== null || ridBacklog !== null
+      ? num(fidBacklog) + num(ridBacklog)
+      : null;
 
   const isdTotal = hasAgingForSelectedDate
     ? num(latestISD["Total"])
-    : num(selectedDashboardCard["ISD"]);
+    : !isBlank(selectedDashboardCard["ISD"])
+    ? num(selectedDashboardCard["ISD"])
+    : null;
 
   const osdTotal = hasAgingForSelectedDate
     ? num(latestOSD["Total"])
-    : num(selectedDashboardCard["OSD"]);
+    : !isBlank(selectedDashboardCard["OSD"])
+    ? num(selectedDashboardCard["OSD"])
+    : null;
 
   const totalParcels =
-    isdTotal + osdTotal > 0
-      ? isdTotal + osdTotal
-      : dashboardTotal > 0
+    isdTotal !== null || osdTotal !== null
+      ? num(isdTotal) + num(osdTotal)
+      : dashboardTotal !== null
       ? dashboardTotal
-      : trackingTotalInProgress;
+      : null;
 
   const zoneTransferData = getZoneTransferData(
     dashboardCard,
@@ -590,90 +525,55 @@ function App() {
   const zoneTransferPct = zoneTransferData.pct;
   const prevZoneTransferPct = prevZoneTransferData.pct;
 
-  const zoneTransferPctDiff = Math.abs(
-    zoneTransferPct - prevZoneTransferPct
-  ).toFixed(2);
+  const zoneTransferPctHasDelta =
+    zoneTransferPct !== null && prevZoneTransferPct !== null && prevZoneTransferPct > 0;
 
-  const zoneTransferPctIncreased = zoneTransferPct > prevZoneTransferPct;
+  const zoneTransferPctDiff = zoneTransferPctHasDelta
+    ? Math.abs(zoneTransferPct - prevZoneTransferPct).toFixed(2)
+    : null;
 
-  const zoneTransferPctDeltaText =
-    prevZoneTransferPct > 0
-      ? zoneTransferPctIncreased
-        ? `${zoneTransferPctDiff}% increased`
-        : `${zoneTransferPctDiff}% decreased`
-      : "No previous data";
+  const zoneTransferPctIncreased =
+    zoneTransferPctHasDelta && zoneTransferPct > prevZoneTransferPct;
 
-  const zoneTransferPctDeltaDir =
-    prevZoneTransferPct > 0
-      ? zoneTransferPctIncreased
-        ? "good-up"
-        : "bad-down"
-      : "neutral";
+  const zoneTransferPctDeltaText = zoneTransferPctHasDelta
+    ? zoneTransferPctIncreased
+      ? `${zoneTransferPctDiff}% increased`
+      : `${zoneTransferPctDiff}% decreased`
+    : "";
 
-  const fidLMH_ISD = num(selectedBacklog["FID LMH ISD"]);
-  const fidLMH_SUB = num(selectedBacklog["FID LMH SUB"]);
-  const fidLMH_OSD = num(selectedBacklog["FID LMH OSD"]);
+  const zoneTransferPctDeltaDir = zoneTransferPctHasDelta
+    ? zoneTransferPctIncreased
+      ? "good-up"
+      : "bad-down"
+    : "";
 
-  const fidFMH = num(selectedBacklog["FID FMH"]);
-  const fidSort = num(selectedBacklog["FID Sort"]);
+  const fidLMH_ISD = selectedBacklog["FID LMH ISD"];
+  const fidLMH_SUB = selectedBacklog["FID LMH SUB"];
+  const fidLMH_OSD = selectedBacklog["FID LMH OSD"];
 
-  const ridFMH_ISD = num(selectedBacklog["RID FMH ISD"]);
-  const ridFMH_SUB = num(selectedBacklog["RID FMH SUB"]);
-  const ridFMH_OSD = num(selectedBacklog["RID FMH OSD"]);
+  const fidFMH = selectedBacklog["FID FMH"];
+  const fidSort = selectedBacklog["FID Sort"];
 
-  const ridLMH_ISD = num(selectedBacklog["RID LMH ISD"]);
-  const ridLMH_SUB = num(selectedBacklog["RID LMH SUB"]);
-  const ridLMH_OSD = num(selectedBacklog["RID LMH OSD"]);
+  const ridFMH_ISD = selectedBacklog["RID FMH ISD"];
+  const ridFMH_SUB = selectedBacklog["RID FMH SUB"];
+  const ridFMH_OSD = selectedBacklog["RID FMH OSD"];
 
-  const ridSort = num(selectedBacklog["RID LMH Sort"]);
+  const ridLMH_ISD = selectedBacklog["RID LMH ISD"];
+  const ridLMH_SUB = selectedBacklog["RID LMH SUB"];
+  const ridLMH_OSD = selectedBacklog["RID LMH OSD"];
 
-  const sortMax = Math.max(fidSort, ridSort, 1);
+  const ridSort = selectedBacklog["RID LMH Sort"];
+
+  const sortMax = Math.max(num(fidSort), num(ridSort), 1);
 
   const hbarRegionMax = Math.max(
-    isdTotal,
-    osdTotal,
-    trackingTotalInProgress,
+    num(isdTotal),
+    num(osdTotal),
+    num(trackingTotalInProgress),
     1
   );
 
   const BUCKETS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, "10+"];
-
-  const getWorkedOnValue = (row) => {
-    if (!isBlank(row["Worked On"])) {
-      return num(row["Worked On"]);
-    }
-
-    const globalIndex = tracking.findIndex(
-      (item) =>
-        getDateKey(item["Report Date"]) === getDateKey(row["Report Date"])
-    );
-
-    const prevRow = globalIndex > 0 ? tracking[globalIndex - 1] : null;
-
-    if (!prevRow) return 0;
-
-    const prevCarry = !isBlank(prevRow["Carry Forward"])
-      ? num(prevRow["Carry Forward"])
-      : num(prevRow["Total In Progress (Backlog)"]);
-
-    const newlyAdded = num(row["Newly Added"]);
-    const currentTotal = num(row["Total In Progress (Backlog)"]);
-
-    const calculatedWorked = prevCarry + newlyAdded - currentTotal;
-
-    return Math.max(calculatedWorked, 0);
-  };
-
-  const getCarryForwardValue = (row) => {
-    if (!isBlank(row["Carry Forward"])) {
-      return num(row["Carry Forward"]);
-    }
-
-    const total = num(row["Total In Progress (Backlog)"]);
-    const worked = getWorkedOnValue(row);
-
-    return Math.max(total - worked, 0);
-  };
 
   const trendData = selectedWindowTracking.map((row) => ({
     date: toDateLabel(row["Report Date"]),
@@ -682,7 +582,7 @@ function App() {
       ? num(row["Total In Progress (Backlog)"])
       : null,
 
-    workedOn: getWorkedOnValue(row),
+    workedOn: !isBlank(row["Worked On"]) ? num(row["Worked On"]) : null,
   }));
 
   const reportDate =
@@ -738,28 +638,28 @@ function App() {
           icon="📦"
           accent="navy"
           title="Total Parcels"
-          value={fmt(totalParcels)}
+          value={fmtMaybe(totalParcels)}
         />
 
         <KPICard
           icon="📋"
           accent="crimson"
           title="Total Backlog"
-          value={fmt(totalBacklog)}
+          value={fmtMaybe(totalBacklog)}
         />
 
         <KPICard
           icon="📉"
           accent="amber"
           title="FID Backlog"
-          value={fmt(fidBacklog)}
+          value={fmtMaybe(fidBacklog)}
         />
 
         <KPICard
           icon="📊"
           accent="teal"
           title="RID Backlog"
-          value={fmt(ridBacklog)}
+          value={fmtMaybe(ridBacklog)}
         />
       </div>
 
@@ -768,7 +668,7 @@ function App() {
           <span className="box-title">Region wise In-Process Parcels</span>
         </div>
 
-        {hasAgingForSelectedDate ? (
+        {isdTotal !== null || osdTotal !== null ? (
           <>
             <HBar
               label="ISD"
@@ -785,12 +685,9 @@ function App() {
             />
           </>
         ) : (
-          <HBar
-            label="FID Total"
-            value={trackingTotalInProgress}
-            max={hbarRegionMax}
-            color={NAVY}
-          />
+          <p style={{ color: "#4a5980", fontWeight: 600 }}>
+            Region-wise data is not available for {reportDate}.
+          </p>
         )}
       </div>
 
@@ -825,7 +722,7 @@ function App() {
               osd={fidLMH_OSD}
             />
 
-            <StackedBar label="FID FMH" isd={fidFMH} sub={0} osd={0} />
+            <StackedBar label="FID FMH" isd={fidFMH} sub="" osd="" />
 
             <StackedBar
               label="RID LMH"
@@ -853,7 +750,7 @@ function App() {
           <span className="box-title">Sort</span>
         </div>
 
-        {hasBacklogForSelectedDate ? (
+        {!isBlank(fidSort) || !isBlank(ridSort) ? (
           <>
             <HBar label="FID Sort" value={fidSort} max={sortMax} color={NAVY} />
 
@@ -876,14 +773,14 @@ function App() {
           icon="🔄"
           accent="amber"
           title="Zone Transfer"
-          value={fmt(zoneTransfer)}
+          value={fmtMaybe(zoneTransfer)}
         />
 
         <KPICard
           icon="📉"
           accent="teal"
           title="Zone Transfer %"
-          value={`${zoneTransferPct.toFixed(2)}%`}
+          value={zoneTransferPct !== null ? `${zoneTransferPct.toFixed(2)}%` : "—"}
           delta={zoneTransferPctDeltaText}
           deltaDir={zoneTransferPctDeltaDir}
         />
@@ -920,10 +817,10 @@ function App() {
                   <td className="row-label isd">ISD</td>
 
                   {BUCKETS.map((bucket) => (
-                    <td key={bucket}>{fmt(latestISD[bucket])}</td>
+                    <td key={bucket}>{fmtMaybe(latestISD[bucket])}</td>
                   ))}
 
-                  <td className="total-col">{fmt(isdTotal)}</td>
+                  <td className="total-col">{fmtMaybe(isdTotal)}</td>
                 </tr>
 
                 <tr className="pct-row">
@@ -931,7 +828,7 @@ function App() {
 
                   {BUCKETS.map((bucket) => (
                     <td key={bucket} style={{ color: TEAL, fontSize: "11px" }}>
-                      {isdTotal
+                      {!isBlank(latestISD[bucket]) && isdTotal
                         ? `${(
                             (num(latestISD[bucket]) / isdTotal) *
                             100
@@ -940,17 +837,17 @@ function App() {
                     </td>
                   ))}
 
-                  <td className="total-col">100%</td>
+                  <td className="total-col">{isdTotal ? "100%" : "—"}</td>
                 </tr>
 
                 <tr className="osd-row">
                   <td className="row-label osd">OSD</td>
 
                   {BUCKETS.map((bucket) => (
-                    <td key={bucket}>{fmt(latestOSD[bucket])}</td>
+                    <td key={bucket}>{fmtMaybe(latestOSD[bucket])}</td>
                   ))}
 
-                  <td className="total-col">{fmt(osdTotal)}</td>
+                  <td className="total-col">{fmtMaybe(osdTotal)}</td>
                 </tr>
 
                 <tr className="pct-row">
@@ -958,7 +855,7 @@ function App() {
 
                   {BUCKETS.map((bucket) => (
                     <td key={bucket} style={{ color: TEAL, fontSize: "11px" }}>
-                      {osdTotal
+                      {!isBlank(latestOSD[bucket]) && osdTotal
                         ? `${(
                             (num(latestOSD[bucket]) / osdTotal) *
                             100
@@ -967,7 +864,7 @@ function App() {
                     </td>
                   ))}
 
-                  <td className="total-col">100%</td>
+                  <td className="total-col">{osdTotal ? "100%" : "—"}</td>
                 </tr>
               </tbody>
             </table>
@@ -1123,13 +1020,13 @@ function App() {
                     {toDateLabel(row["Report Date"])}
                   </td>
 
-                  <td>{fmt(row["Newly Added"])}</td>
+                  <td>{fmtMaybe(row["Newly Added"])}</td>
 
-                  <td>{fmt(row["Total In Progress (Backlog)"])}</td>
+                  <td>{fmtMaybe(row["Total In Progress (Backlog)"])}</td>
 
-                  <td>{fmt(getWorkedOnValue(row))}</td>
+                  <td>{fmtMaybe(row["Worked On"])}</td>
 
-                  <td>{fmt(getCarryForwardValue(row))}</td>
+                  <td>{fmtMaybe(row["Carry Forward"])}</td>
                 </tr>
               );
             })}
