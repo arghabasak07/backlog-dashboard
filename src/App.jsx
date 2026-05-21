@@ -293,11 +293,20 @@ function App() {
       setBacklog(cleanBacklogRows);
       setAging(cleanAgingRows);
 
+      const latest7Rows = cleanTrackingRows.slice(-7);
       const lastDateKey = getDateKey(
-        cleanTrackingRows[cleanTrackingRows.length - 1]?.["Report Date"]
+        latest7Rows[latest7Rows.length - 1]?.["Report Date"]
       );
 
-      setSelectedDateKey((current) => current || lastDateKey);
+      setSelectedDateKey((current) => {
+        const latest7Keys = latest7Rows.map((r) => getDateKey(r["Report Date"]));
+
+        if (current && latest7Keys.includes(current)) {
+          return current;
+        }
+
+        return lastDateKey;
+      });
 
       setLastUpdated(
         new Date().toLocaleTimeString("en-GB", {
@@ -340,8 +349,11 @@ function App() {
     );
   }
 
+  // Latest 7 days only for dropdown, line chart, and bottom table
+  const latest7Tracking = tracking.slice(-7);
+
   const dateOptions = uniqueByKey(
-    tracking.map((row) => ({
+    latest7Tracking.map((row) => ({
       key: getDateKey(row["Report Date"]),
       label: toDateLabel(row["Report Date"]),
     }))
@@ -364,7 +376,9 @@ function App() {
     backlog
       .filter((row) => {
         const rowDateKey = getDateKey(row["Date"]);
-        const rowIndex = dateOptions.findIndex((d) => d.key === rowDateKey);
+        const rowIndex = tracking.findIndex(
+          (r) => getDateKey(r["Report Date"]) === rowDateKey
+        );
         return rowIndex >= 0 && rowIndex < selectedTrackingIndex;
       })
       .slice(-1)[0] || {};
@@ -385,7 +399,9 @@ function App() {
     Object.keys(latestISD).length > 0 || Object.keys(latestOSD).length > 0;
 
   const prevDateKey =
-    selectedTrackingIndex > 0 ? dateOptions[selectedTrackingIndex - 1]?.key : "";
+    selectedTrackingIndex > 0
+      ? getDateKey(tracking[selectedTrackingIndex - 1]?.["Report Date"])
+      : "";
 
   const prevAgingRows = aging.filter(
     (r) => getDateKey(r["Report Date"]) === prevDateKey
@@ -474,7 +490,7 @@ function App() {
 
   const BUCKETS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, "10+"];
 
-  const trendData = tracking.map((r) => ({
+  const trendData = latest7Tracking.map((r) => ({
     date: toDateLabel(r["Report Date"]),
     "Newly Added": r["Newly Added"] !== "" ? num(r["Newly Added"]) : null,
     "Total In Prog":
@@ -887,7 +903,7 @@ function App() {
           </thead>
 
           <tbody>
-            {tracking.map((row, i) => {
+            {latest7Tracking.map((row, i) => {
               const isSelected =
                 getDateKey(row["Report Date"]) === selectedDateKey;
 
