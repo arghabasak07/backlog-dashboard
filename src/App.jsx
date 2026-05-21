@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import Papa from "papaparse";
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
@@ -11,19 +11,20 @@ import {
 } from "recharts";
 import "./App.css";
 
-// ─── Google Sheets CSV Links ───────────────────────────────
 const CSV_URLS = {
-  tracking:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNmZarW4iJWdDABvQpiez3TGED1feDnvx3_8criK4OswQ3H664ixbgmeDXSfHLiA/pub?gid=82060104&single=true&output=csv",
-
   backlog:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNmZarW4iJWdDABvQpiez3TGED1feDnvx3_8criK4OswQ3H664ixbgmeDXSfHLiA/pub?gid=324731862&single=true&output=csv",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSusJS7m9ish0SUQrKQOUiNuia9GoFrqvAjUkVrxkOebpbnX7otEopZ-_ThlWaVRj2KYEnUZN2AKrYJ/pub?gid=627589963&single=true&output=csv",
 
   aging:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNmZarW4iJWdDABvQpiez3TGED1feDnvx3_8criK4OswQ3H664ixbgmeDXSfHLiA/pub?gid=197936727&single=true&output=csv",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSusJS7m9ish0SUQrKQOUiNuia9GoFrqvAjUkVrxkOebpbnX7otEopZ-_ThlWaVRj2KYEnUZN2AKrYJ/pub?gid=2108632369&single=true&output=csv",
+
+  dashboardCard:
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSusJS7m9ish0SUQrKQOUiNuia9GoFrqvAjUkVrxkOebpbnX7otEopZ-_ThlWaVRj2KYEnUZN2AKrYJ/pub?gid=233831813&single=true&output=csv",
+
+  tracking:
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSusJS7m9ish0SUQrKQOUiNuia9GoFrqvAjUkVrxkOebpbnX7otEopZ-_ThlWaVRj2KYEnUZN2AKrYJ/pub?gid=713116247&single=true&output=csv",
 };
 
-// ─── Helpers ───────────────────────────────────────────────
 const num = (value) => {
   if (value === null || value === undefined || value === "") return 0;
   if (typeof value === "number") return value;
@@ -34,8 +35,15 @@ const num = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-const fmt = (n) => num(n).toLocaleString();
-const fmtK = (v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v);
+const isBlank = (value) =>
+  value === null || value === undefined || String(value).trim() === "";
+
+const fmt = (value) => num(value).toLocaleString();
+
+const fmtK = (value) => {
+  const n = num(value);
+  return n >= 1000 ? `${(n / 1000).toFixed(0)}K` : n;
+};
 
 const normalizeRow = (row) => {
   const normalized = {};
@@ -65,6 +73,64 @@ const fetchCSV = async (url) => {
       skipEmptyLines: true,
       complete: (result) => {
         const rows = result.data.map(normalizeRow);
+        resolve(rows);
+      },
+      error: (error) => reject(error),
+    });
+  });
+};
+
+const fetchDashboardCardCSV = async (url) => {
+  const cacheBustedUrl = `${url}&t=${Date.now()}`;
+  const response = await fetch(cacheBustedUrl);
+
+  if (!response.ok) {
+    throw new Error(`Could not fetch Dashboard_Card CSV: HTTP ${response.status}`);
+  }
+
+  const csvText = await response.text();
+
+  return new Promise((resolve, reject) => {
+    Papa.parse(csvText, {
+      header: false,
+      skipEmptyLines: true,
+      complete: (result) => {
+        const rawRows = result.data;
+
+        const headerRowIndex = rawRows.findIndex((row) => {
+          const cells = row.map((cell) => String(cell || "").trim());
+          return cells.includes("Date") && cells.includes("Zone Transfer");
+        });
+
+        if (headerRowIndex === -1) {
+          resolve([]);
+          return;
+        }
+
+        const headers = rawRows[headerRowIndex].map((header) =>
+          String(header || "").trim()
+        );
+
+        const rows = rawRows
+          .slice(headerRowIndex + 1)
+          .filter((row) =>
+            row.some((cell) => String(cell || "").trim() !== "")
+          )
+          .map((row) => {
+            const obj = {};
+
+            headers.forEach((header, index) => {
+              if (header) {
+                obj[header] =
+                  typeof row[index] === "string"
+                    ? row[index].trim()
+                    : row[index];
+              }
+            });
+
+            return obj;
+          });
+
         resolve(rows);
       },
       error: (error) => reject(error),
@@ -128,6 +194,7 @@ const parseDate = (value) => {
 
 const toDateLabel = (value) => {
   const d = parseDate(value);
+
   if (!d) return String(value || "");
 
   const day = d.getDate();
@@ -148,23 +215,60 @@ const uniqueByKey = (arr) => {
   });
 };
 
-const NAVY = "#06164a";
-const CRIMSON = "#c0152a";
-const AMBER = "#f5a623";
-const GREEN = "#1b8a4c";
-const TEAL = "#0e9e8e";
-const PURPLE = "#6b4fa6";
+const getDashboardCardRow = (dashboardRows, selectedDateKey) => {
+  if (!dashboardRows || dashboardRows.length === 0) return {};
 
-// ─── Sub-components ────────────────────────────────────────
+  return (
+    dashboardRows.find(
+      (row) => row["Date"] && getDateKey(row["Date"]) === selectedDateKey
+    ) || {}
+  );
+};
+
+const getZoneTransferData = (dashboardRows, selectedDateKey, totalInProcess) => {
+  const selectedRow = getDashboardCardRow(dashboardRows, selectedDateKey);
+
+  const zoneTransfer = isBlank(selectedRow["Zone Transfer"])
+    ? 0
+    : num(selectedRow["Zone Transfer"]);
+
+  let zoneTransferPct = 0;
+
+  if (!isBlank(selectedRow["Zone Transfer (%)"])) {
+    zoneTransferPct = num(selectedRow["Zone Transfer (%)"]);
+
+    if (zoneTransferPct <= 1) {
+      zoneTransferPct = zoneTransferPct * 100;
+    }
+  } else {
+    zoneTransferPct = totalInProcess
+      ? (zoneTransfer / totalInProcess) * 100
+      : 0;
+  }
+
+  return {
+    value: zoneTransfer,
+    pct: zoneTransferPct,
+  };
+};
+
+/* CarryBee brand colors */
+const NAVY = "#1C2B3A";
+const CRIMSON = "#E05C3A";
+const GREEN = "#2E7D6B";
+const TEAL = "#2E7D6B";
+
 const KPICard = ({ icon, title, value, delta, deltaDir, accent }) => (
   <div className={`card accent-${accent}`}>
     <div className="card-icon">{icon}</div>
+
     <h3>{title}</h3>
     <h2>{value}</h2>
 
     {delta && (
       <span className={`card-delta ${deltaDir}`}>
-        {deltaDir === "down" ? "▼" : "▲"} {delta}
+        {deltaDir === "bad-down" ? "▼" : deltaDir === "good-up" ? "▲" : ""}{" "}
+        {delta}
       </span>
     )}
   </div>
@@ -178,11 +282,11 @@ const HBar = ({ label, value, max, color }) => (
       <div
         className="hbar-fill"
         style={{
-          width: max > 0 ? `${Math.min((value / max) * 100, 100)}%` : "0%",
+          width: max > 0 ? `${Math.min((num(value) / max) * 100, 100)}%` : "0%",
           background: color,
         }}
       >
-        {value > max * 0.18 ? fmt(value) : ""}
+        {num(value) > max * 0.18 ? fmt(value) : ""}
       </div>
     </div>
 
@@ -240,27 +344,36 @@ const StackedBar = ({ label, isd, sub, osd }) => {
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
 
+  const row = payload[0]?.payload || {};
+
   return (
     <div className="custom-tooltip">
       <p className="tooltip-label">{label}</p>
 
-      {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color }}>
-          <span>{p.name}:</span>{" "}
-          <strong>
-            {p.value != null ? num(p.value).toLocaleString() : "—"}
-          </strong>
-        </p>
-      ))}
+      <p style={{ color: "#ffffff" }}>
+        <span>Total In Progress:</span>{" "}
+        <strong>
+          {row.totalInProgress != null
+            ? row.totalInProgress.toLocaleString()
+            : "—"}
+        </strong>
+      </p>
+
+      <p style={{ color: "#ffffff" }}>
+        <span>Worked On:</span>{" "}
+        <strong>
+          {row.workedOn != null ? row.workedOn.toLocaleString() : "—"}
+        </strong>
+      </p>
     </div>
   );
 };
 
-// ─── Main App ──────────────────────────────────────────────
 function App() {
   const [backlog, setBacklog] = useState([]);
   const [tracking, setTracking] = useState([]);
   const [aging, setAging] = useState([]);
+  const [dashboardCard, setDashboardCard] = useState([]);
   const [selectedDateKey, setSelectedDateKey] = useState("");
   const [lastUpdated, setLastUpdated] = useState("");
   const [loading, setLoading] = useState(true);
@@ -271,37 +384,43 @@ function App() {
       setLoading(true);
       setError(null);
 
-      const [trackingRows, backlogRows, agingRows] = await Promise.all([
-        fetchCSV(CSV_URLS.tracking),
-        fetchCSV(CSV_URLS.backlog),
-        fetchCSV(CSV_URLS.aging),
-      ]);
+      const [trackingRows, backlogRows, agingRows, dashboardRows] =
+        await Promise.all([
+          fetchCSV(CSV_URLS.tracking),
+          fetchCSV(CSV_URLS.backlog),
+          fetchCSV(CSV_URLS.aging),
+          fetchDashboardCardCSV(CSV_URLS.dashboardCard),
+        ]);
 
       const cleanTrackingRows = trackingRows.filter(
-        (r) => r["Report Date"] && r["Newly Added"] !== undefined
+        (row) =>
+          row["Report Date"] &&
+          row["Total In Progress (Backlog)"] !== undefined
       );
 
       const cleanBacklogRows = backlogRows.filter(
-        (r) => r["Date"] || r["FID Backlog"] !== undefined
+        (row) => row["Date"] || row["FID Backlog"] !== undefined
       );
 
       const cleanAgingRows = agingRows.filter(
-        (r) => r["Region"] === "ISD" || r["Region"] === "OSD"
+        (row) => row["Region"] === "ISD" || row["Region"] === "OSD"
       );
 
       setTracking(cleanTrackingRows);
       setBacklog(cleanBacklogRows);
       setAging(cleanAgingRows);
+      setDashboardCard(dashboardRows);
 
-      const latest7Rows = cleanTrackingRows.slice(-7);
       const lastDateKey = getDateKey(
-        latest7Rows[latest7Rows.length - 1]?.["Report Date"]
+        cleanTrackingRows[cleanTrackingRows.length - 1]?.["Report Date"]
       );
 
       setSelectedDateKey((current) => {
-        const latest7Keys = latest7Rows.map((r) => getDateKey(r["Report Date"]));
+        const allDateKeys = cleanTrackingRows.map((row) =>
+          getDateKey(row["Report Date"])
+        );
 
-        if (current && latest7Keys.includes(current)) {
+        if (current && allDateKeys.includes(current)) {
           return current;
         }
 
@@ -341,59 +460,58 @@ function App() {
     return (
       <div className="loading-screen">
         <p style={{ color: CRIMSON, fontWeight: 700 }}>⚠ {error}</p>
+
         <p style={{ fontSize: 13, color: "#4a5980", marginTop: 8 }}>
-          Check whether your Google Sheets CSV links are published and
-          accessible.
+          Check whether your Google Sheets CSV links are published and accessible.
         </p>
       </div>
     );
   }
 
-  // Latest 7 days only for dropdown, line chart, and bottom table
-  const latest7Tracking = tracking.slice(-7);
-
   const dateOptions = uniqueByKey(
-    latest7Tracking.map((row) => ({
+    tracking.map((row) => ({
       key: getDateKey(row["Report Date"]),
       label: toDateLabel(row["Report Date"]),
     }))
   );
 
-  const selectedTrackingIndex = Math.max(
-    tracking.findIndex(
-      (row) => getDateKey(row["Report Date"]) === selectedDateKey
-    ),
-    0
+  const selectedTrackingIndexRaw = tracking.findIndex(
+    (row) => getDateKey(row["Report Date"]) === selectedDateKey
+  );
+
+  const selectedTrackingIndex =
+    selectedTrackingIndexRaw >= 0
+      ? selectedTrackingIndexRaw
+      : tracking.length - 1;
+
+  const selectedWindowTracking = tracking.slice(
+    Math.max(0, selectedTrackingIndex - 6),
+    selectedTrackingIndex + 1
   );
 
   const selectedTracking = tracking[selectedTrackingIndex] || {};
-  const prevTracking = tracking[selectedTrackingIndex - 1] || {};
 
   const selectedBacklog =
     backlog.find((row) => getDateKey(row["Date"]) === selectedDateKey) || {};
 
-  const prevBacklog =
-    backlog
-      .filter((row) => {
-        const rowDateKey = getDateKey(row["Date"]);
-        const rowIndex = tracking.findIndex(
-          (r) => getDateKey(r["Report Date"]) === rowDateKey
-        );
-        return rowIndex >= 0 && rowIndex < selectedTrackingIndex;
-      })
-      .slice(-1)[0] || {};
+  const selectedDashboardCard = getDashboardCardRow(
+    dashboardCard,
+    selectedDateKey
+  );
 
   const hasBacklogForSelectedDate = Object.keys(selectedBacklog).length > 0;
 
   const selectedAgingRows = aging.filter(
-    (r) => getDateKey(r["Report Date"]) === selectedDateKey
+    (row) => getDateKey(row["Report Date"]) === selectedDateKey
   );
 
   const latestISD =
-    selectedAgingRows.filter((r) => r["Region"] === "ISD").slice(-1)[0] || {};
+    selectedAgingRows.filter((row) => row["Region"] === "ISD").slice(-1)[0] ||
+    {};
 
   const latestOSD =
-    selectedAgingRows.filter((r) => r["Region"] === "OSD").slice(-1)[0] || {};
+    selectedAgingRows.filter((row) => row["Region"] === "OSD").slice(-1)[0] ||
+    {};
 
   const hasAgingForSelectedDate =
     Object.keys(latestISD).length > 0 || Object.keys(latestOSD).length > 0;
@@ -404,24 +522,20 @@ function App() {
       : "";
 
   const prevAgingRows = aging.filter(
-    (r) => getDateKey(r["Report Date"]) === prevDateKey
+    (row) => getDateKey(row["Report Date"]) === prevDateKey
   );
 
   const prevISD =
-    prevAgingRows.filter((r) => r["Region"] === "ISD").slice(-1)[0] || {};
+    prevAgingRows.filter((row) => row["Region"] === "ISD").slice(-1)[0] || {};
 
   const prevOSD =
-    prevAgingRows.filter((r) => r["Region"] === "OSD").slice(-1)[0] || {};
+    prevAgingRows.filter((row) => row["Region"] === "OSD").slice(-1)[0] || {};
 
   const trackingTotalInProgress = num(
     selectedTracking["Total In Progress (Backlog)"]
   );
 
-  const trackingCarryForward = num(selectedTracking["Carry Forward"]);
-
-  const prevTrackingTotalInProgress = num(
-    prevTracking["Total In Progress (Backlog)"]
-  );
+  const dashboardTotal = num(selectedDashboardCard["Total"]);
 
   const fidBacklog = hasBacklogForSelectedDate
     ? num(selectedBacklog["FID Backlog"])
@@ -431,41 +545,62 @@ function App() {
     ? num(selectedBacklog["RID Backlog"])
     : 0;
 
-  const overallBacklog = hasBacklogForSelectedDate
+  const totalBacklog = hasBacklogForSelectedDate
     ? fidBacklog + ridBacklog
     : trackingTotalInProgress;
 
-  const isdTotal = num(latestISD["Total"]);
-  const osdTotal = num(latestOSD["Total"]);
+  const isdTotal = hasAgingForSelectedDate
+    ? num(latestISD["Total"])
+    : num(selectedDashboardCard["ISD"]);
 
-  const totalInProcess = hasAgingForSelectedDate
-    ? isdTotal + osdTotal
-    : trackingTotalInProgress;
+  const osdTotal = hasAgingForSelectedDate
+    ? num(latestOSD["Total"])
+    : num(selectedDashboardCard["OSD"]);
 
-  const fidPct = totalInProcess ? (fidBacklog / totalInProcess) * 100 : 0;
+  const totalParcels =
+    isdTotal + osdTotal > 0
+      ? isdTotal + osdTotal
+      : dashboardTotal > 0
+      ? dashboardTotal
+      : trackingTotalInProgress;
+
+  const zoneTransferData = getZoneTransferData(
+    dashboardCard,
+    selectedDateKey,
+    totalParcels
+  );
 
   const prevTotal = num(prevISD["Total"]) + num(prevOSD["Total"]);
 
-  const prevFID = hasBacklogForSelectedDate
-    ? num(prevBacklog["FID Backlog"])
-    : prevTrackingTotalInProgress;
+  const prevZoneTransferData = getZoneTransferData(
+    dashboardCard,
+    prevDateKey,
+    prevTotal || totalParcels
+  );
 
-  const prevFIDPct = prevTotal
-    ? (prevFID / prevTotal) * 100
-    : prevTrackingTotalInProgress
-      ? 100
-      : 0;
+  const zoneTransfer = zoneTransferData.value;
+  const zoneTransferPct = zoneTransferData.pct;
+  const prevZoneTransferPct = prevZoneTransferData.pct;
 
-  const pctDelta = Math.abs(fidPct - prevFIDPct).toFixed(2);
+  const zoneTransferPctDiff = Math.abs(
+    zoneTransferPct - prevZoneTransferPct
+  ).toFixed(2);
 
-  const carryForward = trackingCarryForward;
+  const zoneTransferPctIncreased = zoneTransferPct > prevZoneTransferPct;
 
-  const carryForwardPct = totalInProcess
-    ? (carryForward / totalInProcess) * 100
-    : 0;
+  const zoneTransferPctDeltaText =
+    prevZoneTransferPct > 0
+      ? zoneTransferPctIncreased
+        ? `${zoneTransferPctDiff}% increased`
+        : `${zoneTransferPctDiff}% decreased`
+      : "No previous data";
 
-  const fidDelta = Math.abs(fidBacklog - prevFID).toLocaleString();
-  const fidDir = fidBacklog <= prevFID ? "down" : "up";
+  const zoneTransferPctDeltaDir =
+    prevZoneTransferPct > 0
+      ? zoneTransferPctIncreased
+        ? "good-up"
+        : "bad-down"
+      : "neutral";
 
   const fidLMH_ISD = num(selectedBacklog["FID LMH ISD"]);
   const fidLMH_SUB = num(selectedBacklog["FID LMH SUB"]);
@@ -485,21 +620,24 @@ function App() {
   const ridSort = num(selectedBacklog["RID LMH Sort"]);
 
   const sortMax = Math.max(fidSort, ridSort, 1);
-  const hbarRegionMax = Math.max(isdTotal, osdTotal, trackingTotalInProgress, 1);
-  const hbarBacklogMax = Math.max(fidBacklog, ridBacklog, 1);
+
+  const hbarRegionMax = Math.max(
+    isdTotal,
+    osdTotal,
+    trackingTotalInProgress,
+    1
+  );
 
   const BUCKETS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, "10+"];
 
-  const trendData = latest7Tracking.map((r) => ({
-    date: toDateLabel(r["Report Date"]),
-    "Newly Added": r["Newly Added"] !== "" ? num(r["Newly Added"]) : null,
-    "Total In Prog":
-      r["Total In Progress (Backlog)"] !== ""
-        ? num(r["Total In Progress (Backlog)"])
-        : null,
-    "Worked On": r["Worked On"] !== "" ? num(r["Worked On"]) : null,
-    "Carry Forward":
-      r["Carry Forward"] !== "" ? num(r["Carry Forward"]) : null,
+  const trendData = selectedWindowTracking.map((row) => ({
+    date: toDateLabel(row["Report Date"]),
+
+    totalInProgress: !isBlank(row["Total In Progress (Backlog)"])
+      ? num(row["Total In Progress (Backlog)"])
+      : null,
+
+    workedOn: !isBlank(row["Worked On"]) ? num(row["Worked On"]) : null,
   }));
 
   const reportDate =
@@ -508,13 +646,12 @@ function App() {
   return (
     <div className="dashboard">
       <div className="dashboard-header">
-        <div>
-          <h1>
-            Backlog <span>Report</span>
+        <div className="header-left">
+          <h1 className="brand-title">
+            Carry<span className="bee-b">B</span>ee Backlog <span>Report</span>
           </h1>
+
           <p className="subtitle">
-            {reportDate}
-            <span className="divider" />
             Live Google Sheets Dashboard
             {lastUpdated && (
               <>
@@ -528,9 +665,10 @@ function App() {
         <div className="header-actions">
           <div className="date-filter">
             <label>Select Date</label>
+
             <select
               value={selectedDateKey}
-              onChange={(e) => setSelectedDateKey(e.target.value)}
+              onChange={(event) => setSelectedDateKey(event.target.value)}
             >
               {dateOptions.map((date) => (
                 <option key={date.key} value={date.key}>
@@ -547,8 +685,6 @@ function App() {
           >
             🔄 Refresh Data
           </button>
-
-          <span className="badge-threshold">⚠ ISD 3+ | OSD 4+ days</span>
         </div>
       </div>
 
@@ -556,181 +692,60 @@ function App() {
         <KPICard
           icon="📦"
           accent="navy"
-          title="Total In-Process Parcels"
-          value={fmt(totalInProcess)}
+          title="Total Parcels"
+          value={fmt(totalParcels)}
         />
 
         <KPICard
           icon="📋"
           accent="crimson"
-          title="Overall Backlog"
-          value={fmt(overallBacklog)}
-        />
-
-        <KPICard
-          icon="🔄"
-          accent="amber"
-          title="Carry Forward"
-          value={fmt(carryForward)}
+          title="Total Backlog"
+          value={fmt(totalBacklog)}
         />
 
         <KPICard
           icon="📉"
-          accent="teal"
+          accent="amber"
           title="FID Backlog"
           value={fmt(fidBacklog)}
-          delta={`${fidDelta} vs prev`}
-          deltaDir={fidDir}
+        />
+
+        <KPICard
+          icon="📊"
+          accent="teal"
+          title="RID Backlog"
+          value={fmt(ridBacklog)}
         />
       </div>
 
-      <div className="pct-region-grid">
-        <div className="pct-col">
-          <div className="card highlight">
-            <h3>FID Backlog %</h3>
-            <div className="big-pct">{fidPct.toFixed(2)}%</div>
-            <span className="card-delta down">▼ {pctDelta}% vs previous</span>
-          </div>
-
-          <div className="card" style={{ borderTop: `3px solid ${TEAL}` }}>
-            <h3>Carry Forward %</h3>
-            <div className="big-pct" style={{ color: TEAL }}>
-              {carryForwardPct.toFixed(2)}%
-            </div>
-            <span className="card-delta down">▼ FID tracking source</span>
-          </div>
-        </div>
-
-        <div className="bars-col">
-          <div className="chartBox">
-            <div className="box-header">
-              <span className="box-title">Region wise In-Process Parcels</span>
-            </div>
-
-            {hasAgingForSelectedDate ? (
-              <>
-                <HBar
-                  label="ISD"
-                  value={isdTotal}
-                  max={hbarRegionMax}
-                  color={NAVY}
-                />
-                <HBar
-                  label="OSD"
-                  value={osdTotal}
-                  max={hbarRegionMax}
-                  color={CRIMSON}
-                />
-              </>
-            ) : (
-              <HBar
-                label="FID Total"
-                value={trackingTotalInProgress}
-                max={hbarRegionMax}
-                color={NAVY}
-              />
-            )}
-          </div>
-
-          <div className="chartBox">
-            <div className="box-header">
-              <span className="box-title">Backlog</span>
-            </div>
-
-            <HBar
-              label="FID Backlog"
-              value={fidBacklog}
-              max={hbarBacklogMax}
-              color={NAVY}
-            />
-
-            {hasBacklogForSelectedDate && (
-              <HBar
-                label="RID Backlog"
-                value={ridBacklog}
-                max={hbarBacklogMax}
-                color={CRIMSON}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="tableBox">
+      <div className="chartBox full">
         <div className="box-header">
-          <span className="box-title">Aging Distribution</span>
-          <span className="badge-threshold">
-            {hasAgingForSelectedDate
-              ? "ISD 3+ | OSD 4+ days"
-              : "No aging sheet data for this date"}
-          </span>
+          <span className="box-title">Region wise In-Process Parcels</span>
         </div>
 
         {hasAgingForSelectedDate ? (
-          <div style={{ overflowX: "auto" }}>
-            <table className="aging-table">
-              <thead>
-                <tr>
-                  <th>Region</th>
-                  {BUCKETS.map((b) => (
-                    <th key={b}>{b}</th>
-                  ))}
-                  <th>Total</th>
-                </tr>
-              </thead>
+          <>
+            <HBar
+              label="ISD"
+              value={isdTotal}
+              max={hbarRegionMax}
+              color={NAVY}
+            />
 
-              <tbody>
-                <tr className="isd-row">
-                  <td className="row-label isd">ISD</td>
-                  {BUCKETS.map((b) => (
-                    <td key={b}>{fmt(latestISD[b])}</td>
-                  ))}
-                  <td className="total-col">{fmt(isdTotal)}</td>
-                </tr>
-
-                <tr className="pct-row">
-                  <td className="row-label">%</td>
-                  {BUCKETS.map((b) => (
-                    <td key={b} style={{ color: TEAL, fontSize: "11px" }}>
-                      {isdTotal
-                        ? `${((num(latestISD[b]) / isdTotal) * 100).toFixed(
-                            1
-                          )}%`
-                        : "—"}
-                    </td>
-                  ))}
-                  <td className="total-col">100%</td>
-                </tr>
-
-                <tr className="osd-row">
-                  <td className="row-label osd">OSD</td>
-                  {BUCKETS.map((b) => (
-                    <td key={b}>{fmt(latestOSD[b])}</td>
-                  ))}
-                  <td className="total-col">{fmt(osdTotal)}</td>
-                </tr>
-
-                <tr className="pct-row">
-                  <td className="row-label">%</td>
-                  {BUCKETS.map((b) => (
-                    <td key={b} style={{ color: TEAL, fontSize: "11px" }}>
-                      {osdTotal
-                        ? `${((num(latestOSD[b]) / osdTotal) * 100).toFixed(
-                            1
-                          )}%`
-                        : "—"}
-                    </td>
-                  ))}
-                  <td className="total-col">100%</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+            <HBar
+              label="OSD"
+              value={osdTotal}
+              max={hbarRegionMax}
+              color={CRIMSON}
+            />
+          </>
         ) : (
-          <p style={{ color: "#4a5980", fontWeight: 600 }}>
-            Aging distribution data is not available for {reportDate}. KPI
-            values are using FID_Tracking.
-          </p>
+          <HBar
+            label="FID Total"
+            value={trackingTotalInProgress}
+            max={hbarRegionMax}
+            color={NAVY}
+          />
         )}
       </div>
 
@@ -743,10 +758,12 @@ function App() {
               <span className="legend-dot navy" />
               ISD
             </span>
+
             <span className="legend-item">
               <span className="legend-dot green" />
               SUB
             </span>
+
             <span className="legend-item">
               <span className="legend-dot crimson" />
               OSD
@@ -766,17 +783,17 @@ function App() {
             <StackedBar label="FID FMH" isd={fidFMH} sub={0} osd={0} />
 
             <StackedBar
-              label="RID FMH"
-              isd={ridFMH_ISD}
-              sub={ridFMH_SUB}
-              osd={ridFMH_OSD}
-            />
-
-            <StackedBar
               label="RID LMH"
               isd={ridLMH_ISD}
               sub={ridLMH_SUB}
               osd={ridLMH_OSD}
+            />
+
+            <StackedBar
+              label="RID FMH"
+              isd={ridFMH_ISD}
+              sub={ridFMH_SUB}
+              osd={ridFMH_OSD}
             />
           </>
         ) : (
@@ -794,6 +811,7 @@ function App() {
         {hasBacklogForSelectedDate ? (
           <>
             <HBar label="FID Sort" value={fidSort} max={sortMax} color={NAVY} />
+
             <HBar
               label="RID Sort"
               value={ridSort}
@@ -808,80 +826,227 @@ function App() {
         )}
       </div>
 
-      <div className="chartBox full">
+      <div className="cards zone-transfer-row">
+        <KPICard
+          icon="🔄"
+          accent="amber"
+          title="Zone Transfer"
+          value={fmt(zoneTransfer)}
+        />
+
+        <KPICard
+          icon="📉"
+          accent="teal"
+          title="Zone Transfer %"
+          value={`${zoneTransferPct.toFixed(2)}%`}
+          delta={zoneTransferPctDeltaText}
+          deltaDir={zoneTransferPctDeltaDir}
+        />
+      </div>
+
+      <div className="tableBox">
+        <div className="box-header">
+          <span className="box-title">Aging Distribution</span>
+
+          <span className="badge-threshold">
+            {hasAgingForSelectedDate
+              ? "ISD 3+ | OSD 4+ days"
+              : "No aging sheet data for this date"}
+          </span>
+        </div>
+
+        {hasAgingForSelectedDate ? (
+          <div style={{ overflowX: "auto" }}>
+            <table className="aging-table">
+              <thead>
+                <tr>
+                  <th>Region</th>
+
+                  {BUCKETS.map((bucket) => (
+                    <th key={bucket}>{bucket}</th>
+                  ))}
+
+                  <th>Total</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <tr className="isd-row">
+                  <td className="row-label isd">ISD</td>
+
+                  {BUCKETS.map((bucket) => (
+                    <td key={bucket}>{fmt(latestISD[bucket])}</td>
+                  ))}
+
+                  <td className="total-col">{fmt(isdTotal)}</td>
+                </tr>
+
+                <tr className="pct-row">
+                  <td className="row-label">%</td>
+
+                  {BUCKETS.map((bucket) => (
+                    <td key={bucket} style={{ color: TEAL, fontSize: "11px" }}>
+                      {isdTotal
+                        ? `${(
+                            (num(latestISD[bucket]) / isdTotal) *
+                            100
+                          ).toFixed(1)}%`
+                        : "—"}
+                    </td>
+                  ))}
+
+                  <td className="total-col">100%</td>
+                </tr>
+
+                <tr className="osd-row">
+                  <td className="row-label osd">OSD</td>
+
+                  {BUCKETS.map((bucket) => (
+                    <td key={bucket}>{fmt(latestOSD[bucket])}</td>
+                  ))}
+
+                  <td className="total-col">{fmt(osdTotal)}</td>
+                </tr>
+
+                <tr className="pct-row">
+                  <td className="row-label">%</td>
+
+                  {BUCKETS.map((bucket) => (
+                    <td key={bucket} style={{ color: TEAL, fontSize: "11px" }}>
+                      {osdTotal
+                        ? `${(
+                            (num(latestOSD[bucket]) / osdTotal) *
+                            100
+                          ).toFixed(1)}%`
+                        : "—"}
+                    </td>
+                  ))}
+
+                  <td className="total-col">100%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p style={{ color: "#4a5980", fontWeight: 600 }}>
+            Aging distribution data is not available for {reportDate}.
+          </p>
+        )}
+      </div>
+
+      <div className="chartBox full cool-chart-box">
         <div className="box-header">
           <span className="box-title">Date-wise FID Progress Tracking</span>
 
           <div className="legend">
             <span className="legend-item">
-              <span className="legend-dot" style={{ background: AMBER }} />
-              Newly Added
-            </span>
-            <span className="legend-item">
               <span className="legend-dot navy" />
-              Total In Prog
+              Total In Progress
             </span>
+
             <span className="legend-item">
               <span className="legend-dot green" />
               Worked On
             </span>
-            <span className="legend-item">
-              <span className="legend-dot crimson" />
-              Carry Forward
-            </span>
           </div>
         </div>
 
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart
-            data={trendData}
-            margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="#dce3f0" />
-            <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#4a5980" }} />
-            <YAxis
-              tick={{ fontSize: 11, fill: "#8a97b8" }}
-              tickFormatter={fmtK}
-            />
-            <Tooltip content={<CustomTooltip />} />
+        <div className="cool-chart-inner">
+          <ResponsiveContainer width="100%" height={330}>
+            <AreaChart
+              data={trendData}
+              margin={{ top: 12, right: 24, left: 0, bottom: 4 }}
+            >
+              <defs>
+                <linearGradient
+                  id="totalProgressGradient"
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop offset="5%" stopColor={NAVY} stopOpacity={0.32} />
+                  <stop offset="95%" stopColor={NAVY} stopOpacity={0.02} />
+                </linearGradient>
 
-            <Line
-              type="monotone"
-              dataKey="Newly Added"
-              stroke={AMBER}
-              strokeWidth={2.5}
-              dot={{ r: 4 }}
-              connectNulls={false}
-            />
+                <linearGradient
+                  id="workedOnGradient"
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop offset="5%" stopColor={GREEN} stopOpacity={0.28} />
+                  <stop offset="95%" stopColor={GREEN} stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
 
-            <Line
-              type="monotone"
-              dataKey="Total In Prog"
-              stroke={NAVY}
-              strokeWidth={2.5}
-              dot={{ r: 4 }}
-              connectNulls={false}
-            />
+              <CartesianGrid strokeDasharray="4 6" stroke="#ded8cb" vertical />
 
-            <Line
-              type="monotone"
-              dataKey="Worked On"
-              stroke={GREEN}
-              strokeWidth={2.5}
-              dot={{ r: 4 }}
-              connectNulls={false}
-            />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 12, fill: "#556577", fontWeight: 600 }}
+                axisLine={false}
+                tickLine={false}
+                padding={{ left: 10, right: 10 }}
+              />
 
-            <Line
-              type="monotone"
-              dataKey="Carry Forward"
-              stroke={CRIMSON}
-              strokeWidth={2.5}
-              dot={{ r: 4 }}
-              connectNulls={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+              <YAxis
+                tick={{ fontSize: 11, fill: "#8a96a3", fontWeight: 600 }}
+                tickFormatter={fmtK}
+                axisLine={false}
+                tickLine={false}
+                width={44}
+              />
+
+              <Tooltip content={<CustomTooltip />} />
+
+              <Area
+                type="monotone"
+                dataKey="totalInProgress"
+                name="Total In Progress"
+                stroke={NAVY}
+                strokeWidth={3}
+                fill="url(#totalProgressGradient)"
+                dot={{
+                  r: 4,
+                  strokeWidth: 3,
+                  fill: "#ffffff",
+                  stroke: NAVY,
+                }}
+                activeDot={{
+                  r: 7,
+                  strokeWidth: 3,
+                  fill: "#ffffff",
+                  stroke: NAVY,
+                }}
+                connectNulls={false}
+              />
+
+              <Area
+                type="monotone"
+                dataKey="workedOn"
+                name="Worked On"
+                stroke={GREEN}
+                strokeWidth={3}
+                fill="url(#workedOnGradient)"
+                dot={{
+                  r: 4,
+                  strokeWidth: 3,
+                  fill: "#ffffff",
+                  stroke: GREEN,
+                }}
+                activeDot={{
+                  r: 7,
+                  strokeWidth: 3,
+                  fill: "#ffffff",
+                  stroke: GREEN,
+                }}
+                connectNulls={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <div className="tableBox full">
@@ -903,12 +1068,12 @@ function App() {
           </thead>
 
           <tbody>
-            {latest7Tracking.map((row, i) => {
+            {selectedWindowTracking.map((row, index) => {
               const isSelected =
                 getDateKey(row["Report Date"]) === selectedDateKey;
 
               return (
-                <tr key={i} className={isSelected ? "highlight-row" : ""}>
+                <tr key={index} className={isSelected ? "highlight-row" : ""}>
                   <td style={{ textAlign: "left", fontWeight: 600 }}>
                     {toDateLabel(row["Report Date"])}
                   </td>
@@ -918,11 +1083,11 @@ function App() {
                   <td>{fmt(row["Total In Progress (Backlog)"])}</td>
 
                   <td>
-                    {row["Worked On"] !== "" ? fmt(row["Worked On"]) : "—"}
+                    {!isBlank(row["Worked On"]) ? fmt(row["Worked On"]) : "—"}
                   </td>
 
                   <td>
-                    {row["Carry Forward"] !== ""
+                    {!isBlank(row["Carry Forward"])
                       ? fmt(row["Carry Forward"])
                       : "—"}
                   </td>
