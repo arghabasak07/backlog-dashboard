@@ -13,16 +13,16 @@ import "./App.css";
 
 const CSV_URLS = {
   backlog:
-    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/gviz/tq?tqx=out:csv&gid=627589963",
+    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/export?format=csv&gid=627589963",
 
   aging:
-    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/gviz/tq?tqx=out:csv&gid=2108632369",
+    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/export?format=csv&gid=2108632369",
 
   dashboardCard:
-    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/gviz/tq?tqx=out:csv&gid=233831813",
+    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/export?format=csv&gid=233831813",
 
   tracking:
-    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/gviz/tq?tqx=out:csv&gid=713116247",
+    "https://docs.google.com/spreadsheets/d/1n9GW1UkSZ-jhCQ-zmCqwx4EH20fa-Zm5wA5BiMmdZAE/export?format=csv&gid=713116247",
 };
 
 const num = (value) => {
