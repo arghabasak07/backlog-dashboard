@@ -13,6 +13,15 @@ import "./App.css";
 const API_URL =
   "https://script.google.com/macros/s/AKfycbzKeAZ2k3oLrT2fgH7dtJpJjNXVPtPohCzkc7dBNCnc40zbsX51o8KpoCuwnoSoWqSOCg/exec";
 
+const CACHE_KEY = "carrybee-backlog-dashboard-cache";
+
+const NAVY = "#1C2B3A";
+const CRIMSON = "#E05C3A";
+const GREEN = "#2E7D6B";
+const TEAL = "#2E7D6B";
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const num = (value) => {
   if (value === null || value === undefined || value === "") return 0;
   if (typeof value === "number") return value;
@@ -29,7 +38,7 @@ const isBlank = (value) =>
 const fmt = (value) => num(value).toLocaleString();
 
 const fmtMaybe = (value) => {
-  if (value === null || value === undefined || value === "") return "—";
+  if (isBlank(value)) return "—";
   return fmt(value);
 };
 
@@ -50,18 +59,19 @@ const normalizeRow = (row) => {
   return normalized;
 };
 
+const getFirstValue = (row, keys) => {
+  for (const key of keys) {
+    if (!isBlank(row?.[key])) return row[key];
+  }
+
+  return "";
+};
+
 const parseDate = (value) => {
   if (!value) return null;
 
   if (value instanceof Date) {
     return new Date(value.getFullYear(), value.getMonth(), value.getDate());
-  }
-
-  if (typeof value === "number") {
-    const excelEpoch = new Date(1899, 11, 30);
-    return new Date(
-      excelEpoch.getTime() + Math.floor(value) * 24 * 60 * 60 * 1000
-    );
   }
 
   const clean = String(value).trim();
@@ -162,10 +172,42 @@ const getZoneTransferData = (dashboardRows, selectedDateKey, totalInProcess) => 
   };
 };
 
-const NAVY = "#1C2B3A";
-const CRIMSON = "#E05C3A";
-const GREEN = "#2E7D6B";
-const TEAL = "#2E7D6B";
+const fetchAppsScriptData = async () => {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await fetch(
+        `${API_URL}?t=${Date.now()}&attempt=${attempt}`,
+        {
+          method: "GET",
+          cache: "no-store",
+          redirect: "follow",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`API request failed: HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || "Apps Script API returned an error");
+      }
+
+      return data;
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < 3) {
+        await sleep(900 * attempt);
+      }
+    }
+  }
+
+  throw lastError;
+};
 
 const KPICard = ({ icon, title, value, delta, deltaDir, accent }) => (
   <div className={`card accent-${accent}`}>
@@ -299,64 +341,71 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem("carrybee-dark-mode") === "true";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("carrybee-dark-mode", darkMode ? "true" : "false");
+  }, [darkMode]);
+
+  const applyDataToState = (data) => {
+    const cleanTrackingRows = (data.tracking || [])
+      .map(normalizeRow)
+      .filter(
+        (row) =>
+          row["Report Date"] &&
+          row["Total In Progress (Backlog)"] !== undefined
+      );
+
+    const cleanBacklogRows = (data.backlog || [])
+      .map(normalizeRow)
+      .filter((row) => row["Date"] || row["FID Backlog"] !== undefined);
+
+    const cleanAgingRows = (data.aging || [])
+      .map(normalizeRow)
+      .filter((row) => row["Region"] === "ISD" || row["Region"] === "OSD");
+
+    const cleanDashboardRows = (data.dashboardCard || []).map(normalizeRow);
+
+    setTracking(cleanTrackingRows);
+    setBacklog(cleanBacklogRows);
+    setAging(cleanAgingRows);
+    setDashboardCard(cleanDashboardRows);
+
+    const lastDateKey = getDateKey(
+      cleanTrackingRows[cleanTrackingRows.length - 1]?.["Report Date"]
+    );
+
+    setSelectedDateKey((current) => {
+      const allDateKeys = cleanTrackingRows.map((row) =>
+        getDateKey(row["Report Date"])
+      );
+
+      if (current && allDateKeys.includes(current)) {
+        return current;
+      }
+
+      return lastDateKey;
+    });
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const response = await fetch(`${API_URL}?t=${Date.now()}`, {
-        method: "GET",
-        cache: "no-store",
-      });
+      const data = await fetchAppsScriptData();
 
-      if (!response.ok) {
-        throw new Error(`API request failed: HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || "Apps Script API returned an error");
-      }
-
-      const cleanTrackingRows = (data.tracking || [])
-        .map(normalizeRow)
-        .filter(
-          (row) =>
-            row["Report Date"] &&
-            row["Total In Progress (Backlog)"] !== undefined
-        );
-
-      const cleanBacklogRows = (data.backlog || [])
-        .map(normalizeRow)
-        .filter((row) => row["Date"] || row["FID Backlog"] !== undefined);
-
-      const cleanAgingRows = (data.aging || [])
-        .map(normalizeRow)
-        .filter((row) => row["Region"] === "ISD" || row["Region"] === "OSD");
-
-      const cleanDashboardRows = (data.dashboardCard || []).map(normalizeRow);
-
-      setTracking(cleanTrackingRows);
-      setBacklog(cleanBacklogRows);
-      setAging(cleanAgingRows);
-      setDashboardCard(cleanDashboardRows);
-
-      const lastDateKey = getDateKey(
-        cleanTrackingRows[cleanTrackingRows.length - 1]?.["Report Date"]
+      localStorage.setItem(
+        CACHE_KEY,
+        JSON.stringify({
+          savedAt: new Date().toISOString(),
+          data,
+        })
       );
 
-      setSelectedDateKey((current) => {
-        const allDateKeys = cleanTrackingRows.map((row) =>
-          getDateKey(row["Report Date"])
-        );
-
-        if (current && allDateKeys.includes(current)) {
-          return current;
-        }
-
-        return lastDateKey;
-      });
+      applyDataToState(data);
 
       setLastUpdated(
         new Date().toLocaleTimeString("en-GB", {
@@ -368,7 +417,23 @@ function App() {
 
       setLoading(false);
     } catch (err) {
-      console.error(err);
+      console.error("Live API failed:", err);
+
+      const cached = localStorage.getItem(CACHE_KEY);
+
+      if (cached) {
+        try {
+          const parsedCache = JSON.parse(cached);
+          applyDataToState(parsedCache.data);
+          setLastUpdated("Using cached data");
+          setError(null);
+          setLoading(false);
+          return;
+        } catch (cacheError) {
+          console.error("Cache load failed:", cacheError);
+        }
+      }
+
       setError(err.message);
       setLoading(false);
     }
@@ -380,7 +445,7 @@ function App() {
 
   if (loading) {
     return (
-      <div className="loading-screen">
+      <div className={`loading-screen ${darkMode ? "night-mode" : ""}`}>
         <div className="loading-spinner" />
         <p>Loading live Google Sheets data…</p>
       </div>
@@ -389,7 +454,7 @@ function App() {
 
   if (error) {
     return (
-      <div className="loading-screen">
+      <div className={`loading-screen ${darkMode ? "night-mode" : ""}`}>
         <p style={{ color: CRIMSON, fontWeight: 700 }}>
           ⚠ Could not fetch Apps Script API: {error}
         </p>
@@ -526,7 +591,9 @@ function App() {
   const prevZoneTransferPct = prevZoneTransferData.pct;
 
   const zoneTransferPctHasDelta =
-    zoneTransferPct !== null && prevZoneTransferPct !== null && prevZoneTransferPct > 0;
+    zoneTransferPct !== null &&
+    prevZoneTransferPct !== null &&
+    prevZoneTransferPct > 0;
 
   const zoneTransferPctDiff = zoneTransferPctHasDelta
     ? Math.abs(zoneTransferPct - prevZoneTransferPct).toFixed(2)
@@ -552,7 +619,13 @@ function App() {
   const fidLMH_OSD = selectedBacklog["FID LMH OSD"];
 
   const fidFMH = selectedBacklog["FID FMH"];
-  const fidSort = selectedBacklog["FID Sort"];
+
+  const fidSort = getFirstValue(selectedBacklog, [
+    "FID Sort",
+    "FID LMH Sort",
+    "FID FMH Sort",
+    "FID Sort Total",
+  ]);
 
   const ridFMH_ISD = selectedBacklog["RID FMH ISD"];
   const ridFMH_SUB = selectedBacklog["RID FMH SUB"];
@@ -562,7 +635,12 @@ function App() {
   const ridLMH_SUB = selectedBacklog["RID LMH SUB"];
   const ridLMH_OSD = selectedBacklog["RID LMH OSD"];
 
-  const ridSort = selectedBacklog["RID LMH Sort"];
+  const ridSort = getFirstValue(selectedBacklog, [
+    "RID Sort",
+    "RID LMH Sort",
+    "RID FMH Sort",
+    "RID Sort Total",
+  ]);
 
   const sortMax = Math.max(num(fidSort), num(ridSort), 1);
 
@@ -577,11 +655,9 @@ function App() {
 
   const trendData = selectedWindowTracking.map((row) => ({
     date: toDateLabel(row["Report Date"]),
-
     totalInProgress: !isBlank(row["Total In Progress (Backlog)"])
       ? num(row["Total In Progress (Backlog)"])
       : null,
-
     workedOn: !isBlank(row["Worked On"]) ? num(row["Worked On"]) : null,
   }));
 
@@ -589,7 +665,7 @@ function App() {
     toDateLabel(selectedTracking["Report Date"]) || "Selected Date";
 
   return (
-    <div className="dashboard">
+    <div className={`dashboard ${darkMode ? "night-mode" : "day-mode"}`}>
       <div className="dashboard-header">
         <div className="header-left">
           <h1 className="brand-title">
@@ -630,6 +706,19 @@ function App() {
           >
             🔄 Refresh Data
           </button>
+
+          <div className="dark-mode-control">
+            <span>Dark Mode</span>
+
+            <button
+              type="button"
+              className={`toggle-switch ${darkMode ? "active" : ""}`}
+              onClick={() => setDarkMode((prev) => !prev)}
+              aria-label="Toggle dark mode"
+            >
+              <span className="toggle-knob" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -803,11 +892,9 @@ function App() {
               <thead>
                 <tr>
                   <th>Region</th>
-
                   {BUCKETS.map((bucket) => (
                     <th key={bucket}>{bucket}</th>
                   ))}
-
                   <th>Total</th>
                 </tr>
               </thead>
@@ -815,17 +902,14 @@ function App() {
               <tbody>
                 <tr className="isd-row">
                   <td className="row-label isd">ISD</td>
-
                   {BUCKETS.map((bucket) => (
                     <td key={bucket}>{fmtMaybe(latestISD[bucket])}</td>
                   ))}
-
                   <td className="total-col">{fmtMaybe(isdTotal)}</td>
                 </tr>
 
                 <tr className="pct-row">
                   <td className="row-label">%</td>
-
                   {BUCKETS.map((bucket) => (
                     <td key={bucket} style={{ color: TEAL, fontSize: "11px" }}>
                       {!isBlank(latestISD[bucket]) && isdTotal
@@ -836,23 +920,19 @@ function App() {
                         : "—"}
                     </td>
                   ))}
-
                   <td className="total-col">{isdTotal ? "100%" : "—"}</td>
                 </tr>
 
                 <tr className="osd-row">
                   <td className="row-label osd">OSD</td>
-
                   {BUCKETS.map((bucket) => (
                     <td key={bucket}>{fmtMaybe(latestOSD[bucket])}</td>
                   ))}
-
                   <td className="total-col">{fmtMaybe(osdTotal)}</td>
                 </tr>
 
                 <tr className="pct-row">
                   <td className="row-label">%</td>
-
                   {BUCKETS.map((bucket) => (
                     <td key={bucket} style={{ color: TEAL, fontSize: "11px" }}>
                       {!isBlank(latestOSD[bucket]) && osdTotal
@@ -863,7 +943,6 @@ function App() {
                         : "—"}
                     </td>
                   ))}
-
                   <td className="total-col">{osdTotal ? "100%" : "—"}</td>
                 </tr>
               </tbody>
@@ -1021,11 +1100,8 @@ function App() {
                   </td>
 
                   <td>{fmtMaybe(row["Newly Added"])}</td>
-
                   <td>{fmtMaybe(row["Total In Progress (Backlog)"])}</td>
-
                   <td>{fmtMaybe(row["Worked On"])}</td>
-
                   <td>{fmtMaybe(row["Carry Forward"])}</td>
                 </tr>
               );
