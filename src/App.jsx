@@ -20,6 +20,8 @@ const CRIMSON = "#E05C3A";
 const GREEN = "#2E7D6B";
 const TEAL = "#2E7D6B";
 
+const SHEET_TIMEZONE = "Asia/Dhaka";
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const num = (value) => {
@@ -59,22 +61,82 @@ const normalizeRow = (row) => {
   return normalized;
 };
 
-const getFirstValue = (row, keys) => {
-  for (const key of keys) {
-    if (!isBlank(row?.[key])) return row[key];
+const normalizeHeader = (key) =>
+  String(key || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+const getCellValue = (row, possibleHeaders = []) => {
+  if (!row) return "";
+
+  for (const header of possibleHeaders) {
+    if (!isBlank(row[header])) {
+      return row[header];
+    }
+  }
+
+  const rowKeys = Object.keys(row);
+
+  for (const expectedHeader of possibleHeaders) {
+    const expectedClean = normalizeHeader(expectedHeader);
+
+    const matchedKey = rowKeys.find(
+      (key) => normalizeHeader(key) === expectedClean
+    );
+
+    if (matchedKey && !isBlank(row[matchedKey])) {
+      return row[matchedKey];
+    }
   }
 
   return "";
+};
+
+const getDhakaDateFromIso = (isoValue) => {
+  const parsed = new Date(isoValue);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: SHEET_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(parsed);
+
+  const day = Number(parts.find((part) => part.type === "day")?.value);
+  const month = Number(parts.find((part) => part.type === "month")?.value);
+  const year = Number(parts.find((part) => part.type === "year")?.value);
+
+  if (!day || !month || !year) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day);
 };
 
 const parseDate = (value) => {
   if (!value) return null;
 
   if (value instanceof Date) {
-    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    return getDhakaDateFromIso(value.toISOString());
   }
 
   const clean = String(value).trim();
+
+  const isoDateTimeMatch = clean.match(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/
+  );
+
+  if (isoDateTimeMatch) {
+    const dhakaDate = getDhakaDateFromIso(clean);
+
+    if (dhakaDate) {
+      return dhakaDate;
+    }
+  }
 
   const textMatch = clean.match(
     /^(\d{1,2})[\s-]+([A-Za-z]{3,})(?:[\s-]+(\d{4}))?/
@@ -105,10 +167,20 @@ const parseDate = (value) => {
     }
   }
 
+  const isoDateOnlyMatch = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (isoDateOnlyMatch) {
+    return new Date(
+      Number(isoDateOnlyMatch[1]),
+      Number(isoDateOnlyMatch[2]) - 1,
+      Number(isoDateOnlyMatch[3])
+    );
+  }
+
   const parsed = new Date(clean);
 
   if (!Number.isNaN(parsed.getTime())) {
-    return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+    return getDhakaDateFromIso(parsed.toISOString());
   }
 
   return null;
@@ -147,6 +219,82 @@ const getDashboardCardRow = (dashboardRows, selectedDateKey) => {
   );
 };
 
+const getBacklogRow = (backlogRows, dateKey) => {
+  return backlogRows.find((row) => getDateKey(row["Date"]) === dateKey) || {};
+};
+
+const getAgingTotals = (agingRows, dashboardRows, dateKey) => {
+  const selectedAgingRows = agingRows.filter(
+    (row) => getDateKey(row["Report Date"]) === dateKey
+  );
+
+  const latestISD =
+    selectedAgingRows.filter((row) => row["Region"] === "ISD").slice(-1)[0] ||
+    {};
+
+  const latestOSD =
+    selectedAgingRows.filter((row) => row["Region"] === "OSD").slice(-1)[0] ||
+    {};
+
+  const dashboardRow = getDashboardCardRow(dashboardRows, dateKey);
+
+  const hasAging =
+    Object.keys(latestISD).length > 0 || Object.keys(latestOSD).length > 0;
+
+  const isdTotal = hasAging
+    ? num(latestISD["Total"])
+    : !isBlank(dashboardRow["ISD"])
+    ? num(dashboardRow["ISD"])
+    : null;
+
+  const osdTotal = hasAging
+    ? num(latestOSD["Total"])
+    : !isBlank(dashboardRow["OSD"])
+    ? num(dashboardRow["OSD"])
+    : null;
+
+  const dashboardTotal = !isBlank(dashboardRow["Total"])
+    ? num(dashboardRow["Total"])
+    : null;
+
+  const totalParcels =
+    isdTotal !== null || osdTotal !== null
+      ? num(isdTotal) + num(osdTotal)
+      : dashboardTotal !== null
+      ? dashboardTotal
+      : null;
+
+  return {
+    latestISD,
+    latestOSD,
+    hasAging,
+    isdTotal,
+    osdTotal,
+    totalParcels,
+  };
+};
+
+const getBacklogTotals = (backlogRow) => {
+  const fidBacklog = !isBlank(backlogRow["FID Backlog"])
+    ? num(backlogRow["FID Backlog"])
+    : null;
+
+  const ridBacklog = !isBlank(backlogRow["RID Backlog"])
+    ? num(backlogRow["RID Backlog"])
+    : null;
+
+  const totalBacklog =
+    fidBacklog !== null || ridBacklog !== null
+      ? num(fidBacklog) + num(ridBacklog)
+      : null;
+
+  return {
+    fidBacklog,
+    ridBacklog,
+    totalBacklog,
+  };
+};
+
 const getZoneTransferData = (dashboardRows, selectedDateKey, totalInProcess) => {
   const selectedRow = getDashboardCardRow(dashboardRows, selectedDateKey);
 
@@ -169,6 +317,43 @@ const getZoneTransferData = (dashboardRows, selectedDateKey, totalInProcess) => 
   return {
     value: zoneTransfer,
     pct: zoneTransferPct,
+  };
+};
+
+const getKpiDelta = (currentValue, previousValue, type) => {
+  if (
+    currentValue === null ||
+    currentValue === undefined ||
+    previousValue === null ||
+    previousValue === undefined
+  ) {
+    return null;
+  }
+
+  const diff = currentValue - previousValue;
+
+  if (diff === 0) {
+    return {
+      text: "0",
+      dir: "neutral",
+      arrow: "—",
+    };
+  }
+
+  const absDiff = Math.abs(diff).toLocaleString();
+
+  if (type === "parcel") {
+    return {
+      text: absDiff,
+      dir: diff > 0 ? "good-up" : "bad-down",
+      arrow: diff > 0 ? "▲" : "▼",
+    };
+  }
+
+  return {
+    text: absDiff,
+    dir: diff > 0 ? "bad-up" : "good-down",
+    arrow: diff > 0 ? "▲" : "▼",
   };
 };
 
@@ -209,7 +394,7 @@ const fetchAppsScriptData = async () => {
   throw lastError;
 };
 
-const KPICard = ({ icon, title, value, delta, deltaDir, accent }) => (
+const KPICard = ({ icon, title, value, delta, accent }) => (
   <div className={`card accent-${accent}`}>
     <div className="card-icon">{icon}</div>
 
@@ -217,9 +402,9 @@ const KPICard = ({ icon, title, value, delta, deltaDir, accent }) => (
     <h2>{value}</h2>
 
     {delta && (
-      <span className={`card-delta ${deltaDir}`}>
-        {deltaDir === "bad-down" ? "▼" : deltaDir === "good-up" ? "▲" : ""}{" "}
-        {delta}
+      <span className={`card-delta ${delta.dir}`}>
+        <span className="delta-arrow">{delta.arrow}</span>
+        <span>{delta.text}</span>
       </span>
     )}
   </div>
@@ -341,14 +526,6 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [darkMode, setDarkMode] = useState(() => {
-    return localStorage.getItem("carrybee-dark-mode") === "true";
-  });
-
-  useEffect(() => {
-    localStorage.setItem("carrybee-dark-mode", darkMode ? "true" : "false");
-  }, [darkMode]);
-
   const applyDataToState = (data) => {
     const cleanTrackingRows = (data.tracking || [])
       .map(normalizeRow)
@@ -445,7 +622,7 @@ function App() {
 
   if (loading) {
     return (
-      <div className={`loading-screen ${darkMode ? "night-mode" : ""}`}>
+      <div className="loading-screen">
         <div className="loading-spinner" />
         <p>Loading live Google Sheets data…</p>
       </div>
@@ -454,7 +631,7 @@ function App() {
 
   if (error) {
     return (
-      <div className={`loading-screen ${darkMode ? "night-mode" : ""}`}>
+      <div className="loading-screen">
         <p style={{ color: CRIMSON, fontWeight: 700 }}>
           ⚠ Could not fetch Apps Script API: {error}
         </p>
@@ -490,8 +667,13 @@ function App() {
 
   const selectedTracking = tracking[selectedTrackingIndex] || {};
 
-  const selectedBacklog =
-    backlog.find((row) => getDateKey(row["Date"]) === selectedDateKey) || {};
+  const prevDateKey =
+    selectedTrackingIndex > 0
+      ? getDateKey(tracking[selectedTrackingIndex - 1]?.["Report Date"])
+      : "";
+
+  const selectedBacklog = getBacklogRow(backlog, selectedDateKey);
+  const previousBacklog = getBacklogRow(backlog, prevDateKey);
 
   const selectedDashboardCard = getDashboardCardRow(
     dashboardCard,
@@ -500,35 +682,48 @@ function App() {
 
   const hasBacklogForSelectedDate = Object.keys(selectedBacklog).length > 0;
 
-  const selectedAgingRows = aging.filter(
-    (row) => getDateKey(row["Report Date"]) === selectedDateKey
+  const {
+    latestISD,
+    latestOSD,
+    hasAging: hasAgingForSelectedDate,
+    isdTotal,
+    osdTotal,
+    totalParcels,
+  } = getAgingTotals(aging, dashboardCard, selectedDateKey);
+
+  const previousAgingTotals = getAgingTotals(aging, dashboardCard, prevDateKey);
+
+  const {
+    fidBacklog,
+    ridBacklog,
+    totalBacklog,
+  } = getBacklogTotals(selectedBacklog);
+
+  const previousBacklogTotals = getBacklogTotals(previousBacklog);
+
+  const totalParcelsDelta = getKpiDelta(
+    totalParcels,
+    previousAgingTotals.totalParcels,
+    "parcel"
   );
 
-  const latestISD =
-    selectedAgingRows.filter((row) => row["Region"] === "ISD").slice(-1)[0] ||
-    {};
-
-  const latestOSD =
-    selectedAgingRows.filter((row) => row["Region"] === "OSD").slice(-1)[0] ||
-    {};
-
-  const hasAgingForSelectedDate =
-    Object.keys(latestISD).length > 0 || Object.keys(latestOSD).length > 0;
-
-  const prevDateKey =
-    selectedTrackingIndex > 0
-      ? getDateKey(tracking[selectedTrackingIndex - 1]?.["Report Date"])
-      : "";
-
-  const prevAgingRows = aging.filter(
-    (row) => getDateKey(row["Report Date"]) === prevDateKey
+  const totalBacklogDelta = getKpiDelta(
+    totalBacklog,
+    previousBacklogTotals.totalBacklog,
+    "backlog"
   );
 
-  const prevISD =
-    prevAgingRows.filter((row) => row["Region"] === "ISD").slice(-1)[0] || {};
+  const fidBacklogDelta = getKpiDelta(
+    fidBacklog,
+    previousBacklogTotals.fidBacklog,
+    "backlog"
+  );
 
-  const prevOSD =
-    prevAgingRows.filter((row) => row["Region"] === "OSD").slice(-1)[0] || {};
+  const ridBacklogDelta = getKpiDelta(
+    ridBacklog,
+    previousBacklogTotals.ridBacklog,
+    "backlog"
+  );
 
   const trackingTotalInProgress = !isBlank(
     selectedTracking["Total In Progress (Backlog)"]
@@ -536,54 +731,16 @@ function App() {
     ? num(selectedTracking["Total In Progress (Backlog)"])
     : null;
 
-  const dashboardTotal = !isBlank(selectedDashboardCard["Total"])
-    ? num(selectedDashboardCard["Total"])
-    : null;
-
-  const fidBacklog = !isBlank(selectedBacklog["FID Backlog"])
-    ? num(selectedBacklog["FID Backlog"])
-    : null;
-
-  const ridBacklog = !isBlank(selectedBacklog["RID Backlog"])
-    ? num(selectedBacklog["RID Backlog"])
-    : null;
-
-  const totalBacklog =
-    fidBacklog !== null || ridBacklog !== null
-      ? num(fidBacklog) + num(ridBacklog)
-      : null;
-
-  const isdTotal = hasAgingForSelectedDate
-    ? num(latestISD["Total"])
-    : !isBlank(selectedDashboardCard["ISD"])
-    ? num(selectedDashboardCard["ISD"])
-    : null;
-
-  const osdTotal = hasAgingForSelectedDate
-    ? num(latestOSD["Total"])
-    : !isBlank(selectedDashboardCard["OSD"])
-    ? num(selectedDashboardCard["OSD"])
-    : null;
-
-  const totalParcels =
-    isdTotal !== null || osdTotal !== null
-      ? num(isdTotal) + num(osdTotal)
-      : dashboardTotal !== null
-      ? dashboardTotal
-      : null;
-
   const zoneTransferData = getZoneTransferData(
     dashboardCard,
     selectedDateKey,
     totalParcels
   );
 
-  const prevTotal = num(prevISD["Total"]) + num(prevOSD["Total"]);
-
   const prevZoneTransferData = getZoneTransferData(
     dashboardCard,
     prevDateKey,
-    prevTotal || totalParcels
+    previousAgingTotals.totalParcels || totalParcels
   );
 
   const zoneTransfer = zoneTransferData.value;
@@ -614,32 +771,31 @@ function App() {
       : "bad-down"
     : "";
 
-  const fidLMH_ISD = selectedBacklog["FID LMH ISD"];
-  const fidLMH_SUB = selectedBacklog["FID LMH SUB"];
-  const fidLMH_OSD = selectedBacklog["FID LMH OSD"];
+  const fidLMH_ISD = getCellValue(selectedBacklog, ["FID LMH ISD"]);
+  const fidLMH_SUB = getCellValue(selectedBacklog, ["FID LMH SUB"]);
+  const fidLMH_OSD = getCellValue(selectedBacklog, ["FID LMH OSD"]);
+  const fidFMH = getCellValue(selectedBacklog, ["FID FMH"]);
 
-  const fidFMH = selectedBacklog["FID FMH"];
+  const ridFMH_ISD = getCellValue(selectedBacklog, ["RID FMH ISD"]);
+  const ridFMH_SUB = getCellValue(selectedBacklog, ["RID FMH SUB"]);
+  const ridFMH_OSD = getCellValue(selectedBacklog, ["RID FMH OSD"]);
 
-  const fidSort = getFirstValue(selectedBacklog, [
+  const ridLMH_ISD = getCellValue(selectedBacklog, ["RID LMH ISD"]);
+  const ridLMH_SUB = getCellValue(selectedBacklog, ["RID LMH SUB"]);
+  const ridLMH_OSD = getCellValue(selectedBacklog, ["RID LMH OSD"]);
+
+  const fidSort = getCellValue(selectedBacklog, [
     "FID Sort",
-    "FID LMH Sort",
-    "FID FMH Sort",
-    "FID Sort Total",
+    "FID SORT",
+    "FID sort",
+    "FID Sorting",
   ]);
 
-  const ridFMH_ISD = selectedBacklog["RID FMH ISD"];
-  const ridFMH_SUB = selectedBacklog["RID FMH SUB"];
-  const ridFMH_OSD = selectedBacklog["RID FMH OSD"];
-
-  const ridLMH_ISD = selectedBacklog["RID LMH ISD"];
-  const ridLMH_SUB = selectedBacklog["RID LMH SUB"];
-  const ridLMH_OSD = selectedBacklog["RID LMH OSD"];
-
-  const ridSort = getFirstValue(selectedBacklog, [
+  const ridSort = getCellValue(selectedBacklog, [
     "RID Sort",
-    "RID LMH Sort",
-    "RID FMH Sort",
-    "RID Sort Total",
+    "RID SORT",
+    "RID sort",
+    "RID Sorting",
   ]);
 
   const sortMax = Math.max(num(fidSort), num(ridSort), 1);
@@ -665,7 +821,7 @@ function App() {
     toDateLabel(selectedTracking["Report Date"]) || "Selected Date";
 
   return (
-    <div className={`dashboard ${darkMode ? "night-mode" : "day-mode"}`}>
+    <div className="dashboard">
       <div className="dashboard-header">
         <div className="header-left">
           <h1 className="brand-title">
@@ -706,19 +862,6 @@ function App() {
           >
             🔄 Refresh Data
           </button>
-
-          <div className="dark-mode-control">
-            <span>Dark Mode</span>
-
-            <button
-              type="button"
-              className={`toggle-switch ${darkMode ? "active" : ""}`}
-              onClick={() => setDarkMode((prev) => !prev)}
-              aria-label="Toggle dark mode"
-            >
-              <span className="toggle-knob" />
-            </button>
-          </div>
         </div>
       </div>
 
@@ -728,6 +871,7 @@ function App() {
           accent="navy"
           title="Total Parcels"
           value={fmtMaybe(totalParcels)}
+          delta={totalParcelsDelta}
         />
 
         <KPICard
@@ -735,6 +879,7 @@ function App() {
           accent="crimson"
           title="Total Backlog"
           value={fmtMaybe(totalBacklog)}
+          delta={totalBacklogDelta}
         />
 
         <KPICard
@@ -742,6 +887,7 @@ function App() {
           accent="amber"
           title="FID Backlog"
           value={fmtMaybe(fidBacklog)}
+          delta={fidBacklogDelta}
         />
 
         <KPICard
@@ -749,6 +895,7 @@ function App() {
           accent="teal"
           title="RID Backlog"
           value={fmtMaybe(ridBacklog)}
+          delta={ridBacklogDelta}
         />
       </div>
 
@@ -869,9 +1016,18 @@ function App() {
           icon="📉"
           accent="teal"
           title="Zone Transfer %"
-          value={zoneTransferPct !== null ? `${zoneTransferPct.toFixed(2)}%` : "—"}
-          delta={zoneTransferPctDeltaText}
-          deltaDir={zoneTransferPctDeltaDir}
+          value={
+            zoneTransferPct !== null ? `${zoneTransferPct.toFixed(2)}%` : "—"
+          }
+          delta={
+            zoneTransferPctHasDelta
+              ? {
+                  text: zoneTransferPctDeltaText,
+                  dir: zoneTransferPctDeltaDir,
+                  arrow: zoneTransferPctIncreased ? "▲" : "▼",
+                }
+              : null
+          }
         />
       </div>
 
