@@ -19,6 +19,7 @@ const NAVY = "#1C2B3A";
 const CRIMSON = "#E05C3A";
 const GREEN = "#2E7D6B";
 const TEAL = "#2E7D6B";
+const GOLD = "#C99B00";
 
 const SHEET_TIMEZONE = "Asia/Dhaka";
 
@@ -42,6 +43,14 @@ const fmt = (value) => num(value).toLocaleString();
 const fmtMaybe = (value) => {
   if (isBlank(value)) return "—";
   return fmt(value);
+};
+
+const fmtPercent = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "—";
+  }
+
+  return `${Number(value).toFixed(2)}%`;
 };
 
 const fmtK = (value) => {
@@ -295,6 +304,45 @@ const getBacklogTotals = (backlogRow) => {
   };
 };
 
+const getFidBacklogPercent = ({
+  dashboardRow,
+  backlogRow,
+  fidBacklog,
+  totalParcels,
+}) => {
+  const sheetValue = getCellValue(dashboardRow, [
+    "FID Backlog %",
+    "FID Backlog Percent",
+    "FID Backlog Percentage",
+    "FID %",
+    "FID Percent",
+  ]);
+
+  if (!isBlank(sheetValue)) {
+    const parsedValue = num(sheetValue);
+    return parsedValue <= 1 ? parsedValue * 100 : parsedValue;
+  }
+
+  const backlogSheetValue = getCellValue(backlogRow, [
+    "FID Backlog %",
+    "FID Backlog Percent",
+    "FID Backlog Percentage",
+    "FID %",
+    "FID Percent",
+  ]);
+
+  if (!isBlank(backlogSheetValue)) {
+    const parsedValue = num(backlogSheetValue);
+    return parsedValue <= 1 ? parsedValue * 100 : parsedValue;
+  }
+
+  if (fidBacklog !== null && totalParcels) {
+    return (fidBacklog / totalParcels) * 100;
+  }
+
+  return null;
+};
+
 const getZoneTransferData = (dashboardRows, selectedDateKey, totalInProcess) => {
   const selectedRow = getDashboardCardRow(dashboardRows, selectedDateKey);
 
@@ -340,7 +388,10 @@ const getKpiDelta = (currentValue, previousValue, type) => {
     };
   }
 
-  const absDiff = Math.abs(diff).toLocaleString();
+  const absDiff =
+    type === "percent"
+      ? `${Math.abs(diff).toFixed(2)}%`
+      : Math.abs(diff).toLocaleString();
 
   if (type === "parcel") {
     return {
@@ -394,19 +445,187 @@ const fetchAppsScriptData = async () => {
   throw lastError;
 };
 
-const KPICard = ({ icon, title, value, delta, accent }) => (
+const ParcelIcon = () => (
+  <svg width="42" height="42" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+    <path
+      d="M24 5L40 14V34L24 43L8 34V14L24 5Z"
+      stroke="currentColor"
+      strokeWidth="4"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M8 14L24 23L40 14"
+      stroke="currentColor"
+      strokeWidth="4"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M24 23V43"
+      stroke="currentColor"
+      strokeWidth="4"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M16 9.5L32 18.5"
+      stroke="currentColor"
+      strokeWidth="4"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+const ClipboardIcon = () => (
+  <svg width="42" height="42" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+    <path
+      d="M16 9H12C10.9 9 10 9.9 10 11V40C10 41.1 10.9 42 12 42H36C37.1 42 38 41.1 38 40V11C38 9.9 37.1 9 36 9H32"
+      stroke="currentColor"
+      strokeWidth="4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M17 13H31V8H17V13Z"
+      stroke="currentColor"
+      strokeWidth="4"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M17 22H31"
+      stroke="currentColor"
+      strokeWidth="4"
+      strokeLinecap="round"
+    />
+    <path
+      d="M17 30H31"
+      stroke="currentColor"
+      strokeWidth="4"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+const PercentRingIcon = () => (
+  <svg width="48" height="48" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <path
+      d="M32 8A24 24 0 1 1 15.03 15.03"
+      stroke="currentColor"
+      strokeWidth="8"
+      strokeLinecap="round"
+    />
+    <path
+      d="M32 8A24 24 0 0 1 56 32"
+      stroke="currentColor"
+      strokeWidth="8"
+      strokeLinecap="round"
+      opacity="0.35"
+    />
+    <text
+      x="32"
+      y="40"
+      textAnchor="middle"
+      fontSize="26"
+      fontWeight="900"
+      fill="currentColor"
+    >
+      %
+    </text>
+  </svg>
+);
+
+const ZoneTransferIcon = () => (
+  <svg width="44" height="44" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <path d="M18 23H47" stroke="currentColor" strokeWidth="6" strokeLinecap="round" />
+    <path
+      d="M39 15L47 23L39 31"
+      stroke="currentColor"
+      strokeWidth="6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path d="M46 41H17" stroke="currentColor" strokeWidth="6" strokeLinecap="round" />
+    <path
+      d="M25 33L17 41L25 49"
+      stroke="currentColor"
+      strokeWidth="6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const ZonePercentIcon = () => (
+  <svg width="50" height="50" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <path
+      d="M50 20A22 22 0 0 0 15 18"
+      stroke="currentColor"
+      strokeWidth="7"
+      strokeLinecap="round"
+    />
+    <path d="M14 18V8" stroke="currentColor" strokeWidth="7" strokeLinecap="round" />
+    <path d="M14 18H24" stroke="currentColor" strokeWidth="7" strokeLinecap="round" />
+    <path
+      d="M14 44A22 22 0 0 0 49 46"
+      stroke="currentColor"
+      strokeWidth="7"
+      strokeLinecap="round"
+    />
+    <path d="M50 46V56" stroke="currentColor" strokeWidth="7" strokeLinecap="round" />
+    <path d="M50 46H40" stroke="currentColor" strokeWidth="7" strokeLinecap="round" />
+    <text
+      x="32"
+      y="41"
+      textAnchor="middle"
+      fontSize="26"
+      fontWeight="900"
+      fill="currentColor"
+    >
+      %
+    </text>
+  </svg>
+);
+
+const BarIcon = () => (
+  <svg width="42" height="42" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+    <path d="M10 38V24" stroke="currentColor" strokeWidth="6" strokeLinecap="round" />
+    <path d="M24 38V12" stroke="currentColor" strokeWidth="6" strokeLinecap="round" />
+    <path d="M38 38V19" stroke="currentColor" strokeWidth="6" strokeLinecap="round" />
+  </svg>
+);
+
+const TrendIcon = () => (
+  <svg width="42" height="42" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+    <path
+      d="M8 34L18 24L27 29L40 14"
+      stroke="currentColor"
+      strokeWidth="5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M31 14H40V23"
+      stroke="currentColor"
+      strokeWidth="5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const KPICard = ({ icon, title, value, delta, accent, iconClass = "" }) => (
   <div className={`card accent-${accent}`}>
-    <div className="card-icon">{icon}</div>
+    <div className={`card-icon ${iconClass}`}>{icon}</div>
 
-    <h3>{title}</h3>
-    <h2>{value}</h2>
+    <div className="card-content">
+      <h3>{title}</h3>
+      <h2>{value}</h2>
 
-    {delta && (
-      <span className={`card-delta ${delta.dir}`}>
-        <span className="delta-arrow">{delta.arrow}</span>
-        <span>{delta.text}</span>
-      </span>
-    )}
+      {delta && (
+        <span className={`card-delta ${delta.dir}`}>
+          <span className="delta-arrow">{delta.arrow}</span>
+          <span>{delta.text}</span>
+        </span>
+      )}
+    </div>
   </div>
 );
 
@@ -455,28 +674,34 @@ const StackedBar = ({ label, isd, sub, osd }) => {
       <div className="stacked-bar-track">
         {!isBlank(isd) && num(isd) > 0 && (
           <div
-            className="stacked-bar-segment seg-isd"
+            className={`stacked-bar-segment seg-isd ${
+              pISD < 9 ? "tiny-segment" : ""
+            }`}
             style={{ width: `${pISD}%` }}
           >
-            {pISD > 9 ? fmt(isd) : ""}
+            <span className="stacked-value">{fmt(isd)}</span>
           </div>
         )}
 
         {!isBlank(sub) && num(sub) > 0 && (
           <div
-            className="stacked-bar-segment seg-sub"
+            className={`stacked-bar-segment seg-sub ${
+              pSUB < 9 ? "tiny-segment" : ""
+            }`}
             style={{ width: `${pSUB}%` }}
           >
-            {pSUB > 9 ? fmt(sub) : ""}
+            <span className="stacked-value">{fmt(sub)}</span>
           </div>
         )}
 
         {!isBlank(osd) && num(osd) > 0 && (
           <div
-            className="stacked-bar-segment seg-osd"
+            className={`stacked-bar-segment seg-osd ${
+              pOSD < 9 ? "tiny-segment" : ""
+            }`}
             style={{ width: `${pOSD}%` }}
           >
-            {pOSD > 9 ? fmt(osd) : ""}
+            <span className="stacked-value">{fmt(osd)}</span>
           </div>
         )}
       </div>
@@ -680,6 +905,8 @@ function App() {
     selectedDateKey
   );
 
+  const previousDashboardCard = getDashboardCardRow(dashboardCard, prevDateKey);
+
   const hasBacklogForSelectedDate = Object.keys(selectedBacklog).length > 0;
 
   const {
@@ -693,13 +920,24 @@ function App() {
 
   const previousAgingTotals = getAgingTotals(aging, dashboardCard, prevDateKey);
 
-  const {
-    fidBacklog,
-    ridBacklog,
-    totalBacklog,
-  } = getBacklogTotals(selectedBacklog);
+  const { fidBacklog, ridBacklog, totalBacklog } =
+    getBacklogTotals(selectedBacklog);
 
   const previousBacklogTotals = getBacklogTotals(previousBacklog);
+
+  const fidBacklogPercent = getFidBacklogPercent({
+    dashboardRow: selectedDashboardCard,
+    backlogRow: selectedBacklog,
+    fidBacklog,
+    totalParcels,
+  });
+
+  const previousFidBacklogPercent = getFidBacklogPercent({
+    dashboardRow: previousDashboardCard,
+    backlogRow: previousBacklog,
+    fidBacklog: previousBacklogTotals.fidBacklog,
+    totalParcels: previousAgingTotals.totalParcels,
+  });
 
   const totalParcelsDelta = getKpiDelta(
     totalParcels,
@@ -723,6 +961,12 @@ function App() {
     ridBacklog,
     previousBacklogTotals.ridBacklog,
     "backlog"
+  );
+
+  const fidBacklogPercentDelta = getKpiDelta(
+    fidBacklogPercent,
+    previousFidBacklogPercent,
+    "percent"
   );
 
   const trackingTotalInProgress = !isBlank(
@@ -865,37 +1109,50 @@ function App() {
         </div>
       </div>
 
-      <div className="cards">
+      <div className="cards cards-five">
         <KPICard
-          icon="📦"
+          icon={<ParcelIcon />}
           accent="navy"
-          title="Total Parcels"
+          title="In Process Parcels"
           value={fmtMaybe(totalParcels)}
           delta={totalParcelsDelta}
+          iconClass="parcel-icon"
         />
 
         <KPICard
-          icon="📋"
+          icon={<ClipboardIcon />}
           accent="crimson"
-          title="Total Backlog"
+          title="Overall Backlog"
           value={fmtMaybe(totalBacklog)}
           delta={totalBacklogDelta}
+          iconClass="clipboard-icon"
         />
 
         <KPICard
-          icon="📉"
+          icon={<TrendIcon />}
           accent="amber"
           title="FID Backlog"
           value={fmtMaybe(fidBacklog)}
           delta={fidBacklogDelta}
+          iconClass="trend-icon"
         />
 
         <KPICard
-          icon="📊"
+          icon={<PercentRingIcon />}
+          accent="amber"
+          title="FID Backlog %"
+          value={fmtPercent(fidBacklogPercent)}
+          delta={fidBacklogPercentDelta}
+          iconClass="percent-icon"
+        />
+
+        <KPICard
+          icon={<BarIcon />}
           accent="teal"
           title="RID Backlog"
           value={fmtMaybe(ridBacklog)}
           delta={ridBacklogDelta}
+          iconClass="bar-icon"
         />
       </div>
 
@@ -906,19 +1163,8 @@ function App() {
 
         {isdTotal !== null || osdTotal !== null ? (
           <>
-            <HBar
-              label="ISD"
-              value={isdTotal}
-              max={hbarRegionMax}
-              color={NAVY}
-            />
-
-            <HBar
-              label="OSD"
-              value={osdTotal}
-              max={hbarRegionMax}
-              color={CRIMSON}
-            />
+            <HBar label="ISD" value={isdTotal} max={hbarRegionMax} color={NAVY} />
+            <HBar label="OSD" value={osdTotal} max={hbarRegionMax} color={GOLD} />
           </>
         ) : (
           <p style={{ color: "#4a5980", fontWeight: 600 }}>
@@ -932,47 +1178,18 @@ function App() {
           <span className="box-title">Backlog Details</span>
 
           <div className="legend">
-            <span className="legend-item">
-              <span className="legend-dot navy" />
-              ISD
-            </span>
-
-            <span className="legend-item">
-              <span className="legend-dot green" />
-              SUB
-            </span>
-
-            <span className="legend-item">
-              <span className="legend-dot crimson" />
-              OSD
-            </span>
+            <span className="legend-item"><span className="legend-dot navy" />ISD</span>
+            <span className="legend-item"><span className="legend-dot green" />SUB</span>
+            <span className="legend-item"><span className="legend-dot gold" />OSD</span>
           </div>
         </div>
 
         {hasBacklogForSelectedDate ? (
           <>
-            <StackedBar
-              label="FID LMH"
-              isd={fidLMH_ISD}
-              sub={fidLMH_SUB}
-              osd={fidLMH_OSD}
-            />
-
+            <StackedBar label="FID LMH" isd={fidLMH_ISD} sub={fidLMH_SUB} osd={fidLMH_OSD} />
             <StackedBar label="FID FMH" isd={fidFMH} sub="" osd="" />
-
-            <StackedBar
-              label="RID LMH"
-              isd={ridLMH_ISD}
-              sub={ridLMH_SUB}
-              osd={ridLMH_OSD}
-            />
-
-            <StackedBar
-              label="RID FMH"
-              isd={ridFMH_ISD}
-              sub={ridFMH_SUB}
-              osd={ridFMH_OSD}
-            />
+            <StackedBar label="RID LMH" isd={ridLMH_ISD} sub={ridLMH_SUB} osd={ridLMH_OSD} />
+            <StackedBar label="RID FMH" isd={ridFMH_ISD} sub={ridFMH_SUB} osd={ridFMH_OSD} />
           </>
         ) : (
           <p style={{ color: "#4a5980", fontWeight: 600 }}>
@@ -989,13 +1206,7 @@ function App() {
         {!isBlank(fidSort) || !isBlank(ridSort) ? (
           <>
             <HBar label="FID Sort" value={fidSort} max={sortMax} color={NAVY} />
-
-            <HBar
-              label="RID Sort"
-              value={ridSort}
-              max={sortMax}
-              color={CRIMSON}
-            />
+            <HBar label="RID Sort" value={ridSort} max={sortMax} color={GOLD} />
           </>
         ) : (
           <p style={{ color: "#4a5980", fontWeight: 600 }}>
@@ -1006,19 +1217,18 @@ function App() {
 
       <div className="cards zone-transfer-row">
         <KPICard
-          icon="🔄"
+          icon={<ZoneTransferIcon />}
           accent="amber"
-          title="Zone Transfer"
+          title="Zone Transfer Parcels"
           value={fmtMaybe(zoneTransfer)}
+          iconClass="zone-icon"
         />
 
         <KPICard
-          icon="📉"
+          icon={<ZonePercentIcon />}
           accent="teal"
-          title="Zone Transfer %"
-          value={
-            zoneTransferPct !== null ? `${zoneTransferPct.toFixed(2)}%` : "—"
-          }
+          title="Zone Change %"
+          value={zoneTransferPct !== null ? `${zoneTransferPct.toFixed(2)}%` : "—"}
           delta={
             zoneTransferPctHasDelta
               ? {
@@ -1028,6 +1238,7 @@ function App() {
                 }
               : null
           }
+          iconClass="zone-percent-icon"
         />
       </div>
 
@@ -1069,10 +1280,7 @@ function App() {
                   {BUCKETS.map((bucket) => (
                     <td key={bucket} style={{ color: TEAL, fontSize: "11px" }}>
                       {!isBlank(latestISD[bucket]) && isdTotal
-                        ? `${(
-                            (num(latestISD[bucket]) / isdTotal) *
-                            100
-                          ).toFixed(1)}%`
+                        ? `${((num(latestISD[bucket]) / isdTotal) * 100).toFixed(1)}%`
                         : "—"}
                     </td>
                   ))}
@@ -1092,10 +1300,7 @@ function App() {
                   {BUCKETS.map((bucket) => (
                     <td key={bucket} style={{ color: TEAL, fontSize: "11px" }}>
                       {!isBlank(latestOSD[bucket]) && osdTotal
-                        ? `${(
-                            (num(latestOSD[bucket]) / osdTotal) *
-                            100
-                          ).toFixed(1)}%`
+                        ? `${((num(latestOSD[bucket]) / osdTotal) * 100).toFixed(1)}%`
                         : "—"}
                     </td>
                   ))}
@@ -1116,43 +1321,21 @@ function App() {
           <span className="box-title">Date-wise FID Progress Tracking</span>
 
           <div className="legend">
-            <span className="legend-item">
-              <span className="legend-dot navy" />
-              Total In Progress
-            </span>
-
-            <span className="legend-item">
-              <span className="legend-dot green" />
-              Worked On
-            </span>
+            <span className="legend-item"><span className="legend-dot navy" />Total In Progress</span>
+            <span className="legend-item"><span className="legend-dot green" />Worked On</span>
           </div>
         </div>
 
         <div className="cool-chart-inner">
           <ResponsiveContainer width="100%" height={330}>
-            <AreaChart
-              data={trendData}
-              margin={{ top: 12, right: 24, left: 0, bottom: 4 }}
-            >
+            <AreaChart data={trendData} margin={{ top: 12, right: 24, left: 0, bottom: 4 }}>
               <defs>
-                <linearGradient
-                  id="totalProgressGradient"
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
+                <linearGradient id="totalProgressGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={NAVY} stopOpacity={0.32} />
                   <stop offset="95%" stopColor={NAVY} stopOpacity={0.02} />
                 </linearGradient>
 
-                <linearGradient
-                  id="workedOnGradient"
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
+                <linearGradient id="workedOnGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={GREEN} stopOpacity={0.28} />
                   <stop offset="95%" stopColor={GREEN} stopOpacity={0.02} />
                 </linearGradient>
@@ -1185,18 +1368,8 @@ function App() {
                 stroke={NAVY}
                 strokeWidth={3}
                 fill="url(#totalProgressGradient)"
-                dot={{
-                  r: 4,
-                  strokeWidth: 3,
-                  fill: "#ffffff",
-                  stroke: NAVY,
-                }}
-                activeDot={{
-                  r: 7,
-                  strokeWidth: 3,
-                  fill: "#ffffff",
-                  stroke: NAVY,
-                }}
+                dot={{ r: 4, strokeWidth: 3, fill: "#ffffff", stroke: NAVY }}
+                activeDot={{ r: 7, strokeWidth: 3, fill: "#ffffff", stroke: NAVY }}
                 connectNulls={false}
               />
 
@@ -1207,18 +1380,8 @@ function App() {
                 stroke={GREEN}
                 strokeWidth={3}
                 fill="url(#workedOnGradient)"
-                dot={{
-                  r: 4,
-                  strokeWidth: 3,
-                  fill: "#ffffff",
-                  stroke: GREEN,
-                }}
-                activeDot={{
-                  r: 7,
-                  strokeWidth: 3,
-                  fill: "#ffffff",
-                  stroke: GREEN,
-                }}
+                dot={{ r: 4, strokeWidth: 3, fill: "#ffffff", stroke: GREEN }}
+                activeDot={{ r: 7, strokeWidth: 3, fill: "#ffffff", stroke: GREEN }}
                 connectNulls={false}
               />
             </AreaChart>
@@ -1228,9 +1391,7 @@ function App() {
 
       <div className="tableBox full">
         <div className="box-header">
-          <span className="box-title">
-            Date-wise Backlog Progress Tracking (FID)
-          </span>
+          <span className="box-title">Date-wise Backlog Progress Tracking (FID)</span>
         </div>
 
         <table className="tracking-table">
@@ -1246,8 +1407,7 @@ function App() {
 
           <tbody>
             {selectedWindowTracking.map((row, index) => {
-              const isSelected =
-                getDateKey(row["Report Date"]) === selectedDateKey;
+              const isSelected = getDateKey(row["Report Date"]) === selectedDateKey;
 
               return (
                 <tr key={index} className={isSelected ? "highlight-row" : ""}>
