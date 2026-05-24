@@ -60,6 +60,8 @@ select {
   padding: 70px 0 80px;
 }
 
+/* ================= HEADER ================= */
+
 .dashboard-header {
   display: flex;
   align-items: flex-end;
@@ -189,6 +191,8 @@ select {
   box-shadow: var(--shadow-lg);
 }
 
+/* ================= KPI CARDS ================= */
+
 .cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -203,8 +207,8 @@ select {
 
 .card {
   position: relative;
-  min-height: 108px;
-  padding: 15px 14px 13px;
+  min-height: 124px;
+  padding: 14px 14px 12px;
   background: var(--card-bg);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
@@ -319,7 +323,11 @@ select {
   min-width: 0;
   width: 100%;
   text-align: center;
-  overflow: hidden;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .card h3 {
@@ -356,8 +364,8 @@ select {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  margin: 7px auto 0;
-  padding: 4px 8px;
+  margin: 8px auto 0;
+  padding: 4px 9px;
   border-radius: 999px;
   font-size: 10px;
   font-weight: 900;
@@ -386,6 +394,8 @@ select {
 .delta-arrow {
   font-size: 9px;
 }
+
+/* ================= CONTAINERS ================= */
 
 .full,
 .chartBox,
@@ -466,6 +476,8 @@ select {
   background: var(--gold);
 }
 
+/* ================= HORIZONTAL BARS ================= */
+
 .hbar-row {
   display: grid;
   grid-template-columns: 105px 1fr 90px;
@@ -507,6 +519,8 @@ select {
   font-weight: 900;
   text-align: right;
 }
+
+/* ================= STACKED BARS ================= */
 
 .stacked-bar-row {
   display: grid;
@@ -579,6 +593,8 @@ select {
   text-align: right;
 }
 
+/* ================= ZONE TRANSFER CARDS ================= */
+
 .zone-transfer-row {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   width: 100%;
@@ -586,7 +602,7 @@ select {
 }
 
 .zone-transfer-row .card {
-  min-height: 150px;
+  min-height: 168px;
   padding: 24px 28px;
   grid-template-columns: 78px auto;
   justify-content: center;
@@ -614,6 +630,14 @@ select {
 .zone-transfer-row .card-content {
   max-width: 360px;
 }
+
+.zone-transfer-row .card-delta {
+  margin-top: 10px;
+  font-size: 12px;
+  padding: 5px 11px;
+}
+
+/* ================= TABLES ================= */
 
 .badge-threshold {
   display: inline-flex;
@@ -711,17 +735,7 @@ select {
   background: var(--gold) !important;
 }
 
-.aging-rule-note {
-  margin-top: 18px;
-  padding: 14px 18px;
-  border-radius: 10px;
-  background: rgba(249, 196, 0, 0.16);
-  border-left: 5px solid var(--yellow-dark);
-  color: var(--yellow-dark);
-  text-align: center;
-  font-size: 14px;
-  font-weight: 800;
-}
+/* ================= AGING DISTRIBUTION RISK HEATMAP ================= */
 
 /* ISD risk starts from day 4 */
 .aging-table tbody tr.isd-row td:nth-child(5),
@@ -806,6 +820,8 @@ select {
   background: rgba(249, 196, 0, 0.08) !important;
 }
 
+/* ================= CHART ================= */
+
 .cool-chart-box {
   padding-bottom: 24px;
 }
@@ -851,6 +867,102 @@ select {
   color: rgba(255, 255, 255, 0.72);
 }
 
+/* ================= APPENDIX ================= */
+
+.appendix-section {
+  width: 100%;
+  margin-top: 8px;
+  margin-bottom: 20px;
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  border: 1px solid rgba(28, 43, 58, 0.08);
+  overflow: hidden;
+}
+
+.appendix-section summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 22px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  color: var(--navy);
+  font-weight: 900;
+  border-left: 5px solid var(--yellow);
+  user-select: none;
+}
+
+.appendix-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.appendix-section summary::after {
+  content: "＋";
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: rgba(249, 196, 0, 0.16);
+  color: var(--yellow-dark);
+  font-size: 20px;
+  font-weight: 900;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.appendix-section[open] summary::after {
+  content: "−";
+  background: rgba(28, 43, 58, 0.1);
+  color: var(--navy);
+}
+
+.appendix-section summary span {
+  font-size: 22px;
+  letter-spacing: -0.5px;
+}
+
+.appendix-section summary small {
+  margin-left: auto;
+  color: #667789;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.appendix-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 0 28px 28px;
+}
+
+.appendix-item {
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(248, 243, 227, 0.55);
+  border: 1px solid rgba(28, 43, 58, 0.08);
+}
+
+.appendix-item strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--navy);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.appendix-item p {
+  margin: 0;
+  color: #536174;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+/* ================= LOADING ================= */
+
 .loading-screen {
   min-height: 100vh;
   display: grid;
@@ -880,6 +992,8 @@ select {
     transform: rotate(360deg);
   }
 }
+
+/* ================= RESPONSIVE ================= */
 
 @media (max-width: 1180px) {
   .cards-five {
@@ -932,7 +1046,7 @@ select {
   }
 
   .card {
-    min-height: 112px;
+    min-height: 128px;
     padding: 16px 18px;
     grid-template-columns: 52px auto;
     justify-content: center;
@@ -962,7 +1076,7 @@ select {
   }
 
   .zone-transfer-row .card {
-    min-height: 130px;
+    min-height: 150px;
     padding: 20px;
     grid-template-columns: 72px auto;
   }
@@ -1014,5 +1128,27 @@ select {
   .box-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .appendix-section summary {
+    position: relative;
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 20px 64px 20px 20px;
+  }
+
+  .appendix-section summary small {
+    margin-left: 0;
+  }
+
+  .appendix-section summary::after {
+    position: absolute;
+    right: 20px;
+    top: 18px;
+  }
+
+  .appendix-grid {
+    grid-template-columns: 1fr;
+    padding: 0 20px 22px;
   }
 }

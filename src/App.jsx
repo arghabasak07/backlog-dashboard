@@ -23,6 +23,27 @@ const GOLD = "#C99B00";
 
 const SHEET_TIMEZONE = "Asia/Dhaka";
 
+const APPENDIX_ITEMS = [
+  ["Total In-Process Parcels", "Total active FID parcels from ISD and OSD for the selected date."],
+  ["Overall Backlog", "Combined undelivered backlog from FID and RID pipelines."],
+  ["FID Backlog", "Total pending First Inbound Delivery parcels for the selected date."],
+  ["RID Backlog", "Total pending Return Inbound Delivery parcels for the selected date."],
+  ["FID Backlog %", "FID backlog share compared with total in-process parcels."],
+  ["Zone Transfer Parcels", "Parcels transferred between delivery zones on the selected date."],
+  ["Zone Change %", "Zone transfer parcels as a percentage of total in-process parcels."],
+  ["Region-wise In-Process Parcels", "ISD and OSD parcel volume comparison for the selected date."],
+  ["Sort", "Comparison of FID Sort and RID Sort parcel counts."],
+  ["Aging Distribution", "Day-wise aging split of ISD and OSD parcels from 1 day to 10+ days."],
+  ["Date-wise Progress Tracking", "Daily trend of FID total in-process and worked-on parcels."],
+  ["ISD", "Inbound Standard Delivery."],
+  ["OSD", "Outbound Standard Delivery."],
+  ["SUB", "Sub-hub or intermediate processing stage."],
+  ["LMH", "Last Mile Hub, the final hub before customer delivery."],
+  ["FMH", "First Mile Hub, the entry point into the delivery network."],
+  ["FID", "First Inbound Delivery cycle."],
+  ["RID", "Return Inbound Delivery cycle."],
+];
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const num = (value) => {
@@ -119,9 +140,7 @@ const getDhakaDateFromIso = (isoValue) => {
   const month = Number(parts.find((part) => part.type === "month")?.value);
   const year = Number(parts.find((part) => part.type === "year")?.value);
 
-  if (!day || !month || !year) {
-    return null;
-  }
+  if (!day || !month || !year) return null;
 
   return new Date(year, month - 1, day);
 };
@@ -141,10 +160,7 @@ const parseDate = (value) => {
 
   if (isoDateTimeMatch) {
     const dhakaDate = getDhakaDateFromIso(clean);
-
-    if (dhakaDate) {
-      return dhakaDate;
-    }
+    if (dhakaDate) return dhakaDate;
   }
 
   const textMatch = clean.match(
@@ -216,6 +232,34 @@ const uniqueByKey = (arr) => {
     seen.add(item.key);
     return true;
   });
+};
+
+const getPreviousDateKeyFromRows = (rows, dateField, selectedDateKey) => {
+  const selectedDate = parseDate(selectedDateKey);
+
+  if (!selectedDate) return "";
+
+  const selectedTime = selectedDate.getTime();
+
+  const dateItems = uniqueByKey(
+    (rows || [])
+      .map((row) => {
+        const key = getDateKey(row?.[dateField]);
+        const date = parseDate(key);
+
+        return {
+          key,
+          time: date ? date.getTime() : null,
+        };
+      })
+      .filter((item) => item.key && item.time !== null)
+  ).sort((a, b) => a.time - b.time);
+
+  const previous = dateItems
+    .filter((item) => item.time < selectedTime)
+    .slice(-1)[0];
+
+  return previous?.key || "";
 };
 
 const getDashboardCardRow = (dashboardRows, selectedDateKey) => {
@@ -489,18 +533,8 @@ const ClipboardIcon = () => (
       strokeWidth="4"
       strokeLinejoin="round"
     />
-    <path
-      d="M17 22H31"
-      stroke="currentColor"
-      strokeWidth="4"
-      strokeLinecap="round"
-    />
-    <path
-      d="M17 30H31"
-      stroke="currentColor"
-      strokeWidth="4"
-      strokeLinecap="round"
-    />
+    <path d="M17 22H31" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+    <path d="M17 30H31" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
   </svg>
 );
 
@@ -892,20 +926,35 @@ function App() {
 
   const selectedTracking = tracking[selectedTrackingIndex] || {};
 
-  const prevDateKey =
+  const fallbackPrevDateKey =
     selectedTrackingIndex > 0
       ? getDateKey(tracking[selectedTrackingIndex - 1]?.["Report Date"])
       : "";
 
+  const previousAgingDateKey =
+    getPreviousDateKeyFromRows(aging, "Report Date", selectedDateKey) ||
+    fallbackPrevDateKey;
+
+  const previousBacklogDateKey =
+    getPreviousDateKeyFromRows(backlog, "Date", selectedDateKey) ||
+    fallbackPrevDateKey;
+
+  const previousDashboardDateKey =
+    getPreviousDateKeyFromRows(dashboardCard, "Date", selectedDateKey) ||
+    fallbackPrevDateKey;
+
   const selectedBacklog = getBacklogRow(backlog, selectedDateKey);
-  const previousBacklog = getBacklogRow(backlog, prevDateKey);
+  const previousBacklog = getBacklogRow(backlog, previousBacklogDateKey);
 
   const selectedDashboardCard = getDashboardCardRow(
     dashboardCard,
     selectedDateKey
   );
 
-  const previousDashboardCard = getDashboardCardRow(dashboardCard, prevDateKey);
+  const previousDashboardCard = getDashboardCardRow(
+    dashboardCard,
+    previousDashboardDateKey
+  );
 
   const hasBacklogForSelectedDate = Object.keys(selectedBacklog).length > 0;
 
@@ -918,7 +967,11 @@ function App() {
     totalParcels,
   } = getAgingTotals(aging, dashboardCard, selectedDateKey);
 
-  const previousAgingTotals = getAgingTotals(aging, dashboardCard, prevDateKey);
+  const previousAgingTotals = getAgingTotals(
+    aging,
+    dashboardCard,
+    previousAgingDateKey || previousDashboardDateKey
+  );
 
   const { fidBacklog, ridBacklog, totalBacklog } =
     getBacklogTotals(selectedBacklog);
@@ -983,7 +1036,7 @@ function App() {
 
   const prevZoneTransferData = getZoneTransferData(
     dashboardCard,
-    prevDateKey,
+    previousDashboardDateKey,
     previousAgingTotals.totalParcels || totalParcels
   );
 
@@ -1011,8 +1064,8 @@ function App() {
 
   const zoneTransferPctDeltaDir = zoneTransferPctHasDelta
     ? zoneTransferPctIncreased
-      ? "good-up"
-      : "bad-down"
+      ? "bad-up"
+      : "good-down"
     : "";
 
   const fidLMH_ISD = getCellValue(selectedBacklog, ["FID LMH ISD"]);
@@ -1424,11 +1477,23 @@ function App() {
             })}
           </tbody>
         </table>
-
-        <div className="aging-rule-note">
-          <strong>Aging Rule:</strong> ISD &amp; SUB = 4 Days+ || OSD = 5 Days+
-        </div>
       </div>
+
+      <details className="appendix-section">
+        <summary>
+          <span>Appendix</span>
+          <small>KPI definitions and calculation notes</small>
+        </summary>
+
+        <div className="appendix-grid">
+          {APPENDIX_ITEMS.map(([title, description]) => (
+            <div className="appendix-item" key={title}>
+              <strong>{title}</strong>
+              <p>{description}</p>
+            </div>
+          ))}
+        </div>
+      </details>
     </div>
   );
 }
